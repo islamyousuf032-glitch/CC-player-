@@ -148,9 +148,9 @@ class Media3PlaybackEngine(context: Context) : PlaybackEngine {
         val duration = player.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L
         val status = when {
             mutableState.value.status == PlaybackStatus.ERROR -> PlaybackStatus.ERROR
+            player.currentMediaItem == null -> PlaybackStatus.IDLE
             player.playbackState == Player.STATE_ENDED -> PlaybackStatus.ENDED
             player.playbackState == Player.STATE_BUFFERING || player.playbackState == Player.STATE_IDLE -> PlaybackStatus.LOADING
-            player.currentMediaItem == null -> PlaybackStatus.IDLE
             else -> PlaybackStatus.READY
         }
         mutableState.value = mutableState.value.copy(

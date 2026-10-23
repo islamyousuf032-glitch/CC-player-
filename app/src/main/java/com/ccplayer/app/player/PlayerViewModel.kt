@@ -21,9 +21,12 @@ import com.ccplayer.media.android.playback.PlaybackEngine
 import com.ccplayer.media.android.playback.PlaybackSnapshot
 import com.ccplayer.media.mcraw.McrawDecoder
 import com.ccplayer.media.mcraw.McrawInfo
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -306,21 +309,30 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private fun copyExportToDestination(outputFile: File) {
         val destination = exportDestinationUri
         if (destination == null) {
+            outputFile.delete()
+            exportTemporaryFile = null
             mutableUiState.update {
                 it.copy(export = it.export.copy(status = ExportStatus.ERROR, message = "Missing export destination"))
             }
             return
         }
         exportJob = viewModelScope.launch {
-            runCatching {
+            try {
                 withContext(Dispatchers.IO) {
-                    val output = contentResolver.openOutputStream(destination, "w")
+                    val output = contentResolver.openOutputStream(destination, "wt")
                         ?: throw IOException("Could not open export destination")
                     output.buffered().use { target ->
-                        outputFile.inputStream().buffered().use { source -> source.copyTo(target) }
+                        outputFile.inputStream().buffered().use { source ->
+                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                            while (true) {
+                                currentCoroutineContext().ensureActive()
+                                val count = source.read(buffer)
+                                if (count < 0) break
+                                target.write(buffer, 0, count)
+                            }
+                        }
                     }
                 }
-            }.onSuccess {
                 mutableUiState.update {
                     it.copy(
                         export = it.export.copy(
@@ -330,13 +342,19 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                         ),
                     )
                 }
-            }.onFailure { error ->
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
                 mutableUiState.update {
                     it.copy(export = it.export.copy(status = ExportStatus.ERROR, message = error.message))
                 }
+            } finally {
+                outputFile.delete()
+                if (exportTemporaryFile == outputFile) {
+                    exportTemporaryFile = null
+                    exportDestinationUri = null
+                }
             }
-            outputFile.delete()
-            exportTemporaryFile = null
         }
     }
 
@@ -348,6 +366,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         exportDestinationUri?.let { uri ->
             runCatching { DocumentsContract.deleteDocument(contentResolver, uri) }
         }
+        exportDestinationUri = null
         mutableUiState.update { it.copy(export = ExportUiState(selectedCodec = it.export.selectedCodec)) }
     }
 

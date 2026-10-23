@@ -56,7 +56,7 @@ data class FrameRate(val rational: Rational) {
 }
 
 private fun BigInteger.toExactLong(): Long {
-    val result = longValue()
+    val result = toLong()
     require(BigInteger.valueOf(result) == this) { "Timestamp exceeds the Long range" }
     return result
 }

@@ -30,6 +30,7 @@ class Media3ExportEngine(context: Context) {
     private val appContext = context.applicationContext
     private var transformer: Transformer? = null
     private var outputFile: File? = null
+    private var operationSerial = 0L
 
     val isRunning: Boolean get() = transformer != null
 
@@ -51,12 +52,15 @@ class Media3ExportEngine(context: Context) {
         }
 
         outputFile = destination
+        val operation = ++operationSerial
         runCatching {
             val exportListener = object : Transformer.Listener {
                 override fun onCompleted(composition: Composition, exportResult: ExportResult) {
-                    val completed = destination
-                    clearOperation()
-                    listener.onCompleted(completed)
+                    if (!finishOperation(operation)) {
+                        destination.delete()
+                        return
+                    }
+                    listener.onCompleted(destination)
                 }
 
                 override fun onError(
@@ -64,8 +68,11 @@ class Media3ExportEngine(context: Context) {
                     exportResult: ExportResult,
                     exportException: ExportException,
                 ) {
-                    clearOperation()
-                    listener.onError(exportException.message ?: "Video export failed")
+                    val isCurrent = finishOperation(operation)
+                    destination.delete()
+                    if (isCurrent) {
+                        listener.onError(exportException.message ?: "Video export failed")
+                    }
                 }
 
                 override fun onFallbackApplied(
@@ -73,9 +80,11 @@ class Media3ExportEngine(context: Context) {
                     originalTransformationRequest: TransformationRequest,
                     fallbackTransformationRequest: TransformationRequest,
                 ) {
-                    listener.onFallback(
-                        "Device fallback: ${fallbackTransformationRequest.videoMimeType ?: "resolution changed"}",
-                    )
+                    if (operation == operationSerial) {
+                        listener.onFallback(
+                            "Device fallback: ${fallbackTransformationRequest.videoMimeType ?: "resolution changed"}",
+                        )
+                    }
                 }
             }
 
@@ -94,8 +103,9 @@ class Media3ExportEngine(context: Context) {
                     created.start(item, destination.absolutePath)
                 }
         }.onFailure { error ->
-            clearOperation()
-            listener.onError(error.message ?: "Could not start export")
+            val isCurrent = finishOperation(operation)
+            destination.delete()
+            if (isCurrent) listener.onError(error.message ?: "Could not start export")
         }
     }
 
@@ -111,13 +121,23 @@ class Media3ExportEngine(context: Context) {
     }
 
     fun cancel() {
-        transformer?.cancel()
-        clearOperation()
-        outputFile?.delete()
-    }
-
-    private fun clearOperation() {
+        val current = transformer
+        val partial = outputFile
+        // Invalidate callbacks before cancel(): a cancelled Transformer may finish on a later loop.
+        operationSerial++
         transformer = null
         outputFile = null
+        try {
+            current?.cancel()
+        } finally {
+            partial?.delete()
+        }
+    }
+
+    private fun finishOperation(operation: Long): Boolean {
+        if (operation != operationSerial) return false
+        transformer = null
+        outputFile = null
+        return true
     }
 }

@@ -34,7 +34,8 @@ object ColorGradeMatrix {
             for (input in 0..2) {
                 val identityWeight = if (output == input) grade.saturation else 0f
                 val saturationWeight = identityWeight + luma[input] * (1f - grade.saturation)
-                val value = contrast * gains[output] * saturationWeight
+                // Column-major S * G: white-balance each input before computing saturation.
+                val value = contrast * saturationWeight * gains[input]
                 result[input * 4 + output] = value
             }
             result[3 * 4 + output] = 0f
