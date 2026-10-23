@@ -36,6 +36,8 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
 
       - name: Validate wrapper
         uses: gradle/actions/wrapper-validation@v4
@@ -75,10 +77,10 @@ jobs:
           import zipfile
           apk = "app/build/outputs/apk/debug/app-debug.apk"
           required = {
-              "THIRD_PARTY_NOTICES.md",
-              "licenses/MotionCam-Decoder-LICENSE.txt",
-              "licenses/nlohmann-json-LICENSE.txt",
-              "licenses/SIMDe-LICENSE.txt",
+              "assets/THIRD_PARTY_NOTICES.md",
+              "assets/licenses/MotionCam-Decoder-LICENSE.txt",
+              "assets/licenses/nlohmann-json-LICENSE.txt",
+              "assets/licenses/SIMDe-LICENSE.txt",
               *{f"lib/{abi}/libccplayer_mcraw.so" for abi in ("arm64-v8a", "x86_64")},
               *{f"lib/{abi}/libc++_shared.so" for abi in ("arm64-v8a", "x86_64")},
           }
