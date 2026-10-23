@@ -10,7 +10,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
 import com.ccplayer.core.media.color.ColorGrade
-import com.ccplayer.core.media.export.ExportProfiles
 import com.ccplayer.core.media.export.VideoCodec
 import com.ccplayer.core.media.format.InputBackend
 import com.ccplayer.core.media.format.InputFormatRouter
@@ -166,6 +165,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     fun renderMcrawFrame(frameIndex: Int) {
         val uri = currentUri ?: return
         val info = mutableUiState.value.mcrawInfo ?: return
+        if (info.frameCount <= 0) return
         val target = frameIndex.coerceIn(0, info.frameCount - 1)
         mcrawJob?.cancel()
         mutableUiState.update { it.copy(mcrawFrameIndex = target, isBusy = true) }

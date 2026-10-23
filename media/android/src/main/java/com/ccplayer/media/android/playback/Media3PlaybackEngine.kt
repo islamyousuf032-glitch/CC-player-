@@ -1,7 +1,6 @@
 package com.ccplayer.media.android.playback
 
 import android.content.Context
-import android.media.AudioManager
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper

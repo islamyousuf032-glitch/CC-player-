@@ -20,10 +20,10 @@ class TimelineTest {
         val result = timeline.splitClip("v1", "a", atUs = 2_500_000, newClipId = "b")
         val clips = result.tracks.single().clips
         assertEquals(2, clips.size)
-        assertEquals(1_500_000, clips[0].durationUs)
-        assertEquals(2_500_000, clips[1].timelineStartUs)
-        assertEquals(3_500_000, clips[1].sourceInUs)
-        assertEquals(2_500_000, clips[1].durationUs)
+        assertEquals(1_500_000L, clips[0].durationUs)
+        assertEquals(2_500_000L, clips[1].timelineStartUs)
+        assertEquals(3_500_000L, clips[1].sourceInUs)
+        assertEquals(2_500_000L, clips[1].durationUs)
         assertEquals(timeline.durationUs, result.durationUs)
     }
 
@@ -35,7 +35,7 @@ class TimelineTest {
         assertTrue(history.canRedo)
         history.execute { it.trimClip("v1", "a", 2_100_000, 3_000_000) }
         assertFalse(history.canRedo)
-        assertEquals(3_000_000, history.current.tracks.single().clips.single().durationUs)
+        assertEquals(3_000_000L, history.current.tracks.single().clips.single().durationUs)
     }
 
     @Test(expected = IllegalArgumentException::class)

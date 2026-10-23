@@ -22,17 +22,17 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install Android platform and native toolchain
         run: |
-          sdkmanager --install "platforms;android-37" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.31.6"
+          echo "${ANDROID_HOME}/cmdline-tools/latest/bin" >> "${GITHUB_PATH}"
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --version
+          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.31.6"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -41,7 +41,24 @@ jobs:
         uses: gradle/actions/wrapper-validation@v4
 
       - name: Unit tests and debug APK
-        run: ./gradlew :core:media:testDebugUnitTest :app:assembleDebug --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew :core:media:testDebugUnitTest :app:assembleDebug --stacktrace 2>&1 | tee "${RUNNER_TEMP}/cc-player-build.log"
+
+      - name: Publish failure diagnostics
+        if: failure()
+        run: |
+          {
+            echo "## Build diagnostics"
+            echo
+            echo '```text'
+            if [[ -f "${RUNNER_TEMP}/cc-player-build.log" ]]; then
+              tail -n 250 "${RUNNER_TEMP}/cc-player-build.log"
+            else
+              echo "The build did not reach Gradle; inspect the SDK setup step."
+            fi
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
