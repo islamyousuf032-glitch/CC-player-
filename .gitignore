@@ -1,0 +1,30 @@
+# Gradle and Android Studio
+.gradle/
+**/build/
+local.properties
+.idea/
+*.iml
+.cxx/
+.externalNativeBuild/
+
+# Native dependencies are fetched at configure time and are not vendored.
+third_party/src/
+third_party/build/
+
+# Signing and local secrets
+keystore.properties
+*.jks
+*.keystore
+*.p12
+
+# Generated packages and reports
+*.apk
+*.aab
+*.apks
+*.zip
+*.7z
+captures/
+
+# OS files
+.DS_Store
+Thumbs.db
