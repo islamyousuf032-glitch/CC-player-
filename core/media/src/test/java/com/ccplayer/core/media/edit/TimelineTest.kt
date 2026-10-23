@@ -38,6 +38,11 @@ class TimelineTest {
         assertEquals(3_000_000L, history.current.tracks.single().clips.single().durationUs)
     }
 
+    @Test(expected = IllegalStateException::class)
+    fun trimmingAnUnknownClipDoesNotSilentlySucceed() {
+        timeline.trimClip("v1", "missing", 0, 1_000_000)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun overlappingTrimIsRejected() {
         val source = Timeline(

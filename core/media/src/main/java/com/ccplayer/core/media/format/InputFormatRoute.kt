@@ -24,7 +24,10 @@ data class InputFormatRoute(
 object InputFormatRouter {
     private val platformContainers = setOf("mp4", "m4v", "mov", "mkv", "webm", "ts", "3gp", "avi")
     private val ffmpegContainers = setOf("apv", "mxf", "vob", "mpg", "mpeg", "wmv", "flv", "mts", "m2ts")
-    private val sequences = setOf("dng", "exr", "dpx")
+    private val sequences = setOf(
+        "dng", "exr", "dpx", "cin", "tga", "tif", "tiff",
+        "png", "jpg", "jpeg", "j2c", "j2k", "jp2",
+    )
     private val vendorRaw = setOf("braw", "r3d", "crm", "ari", "arx")
 
     fun route(fileName: String): InputFormatRoute {

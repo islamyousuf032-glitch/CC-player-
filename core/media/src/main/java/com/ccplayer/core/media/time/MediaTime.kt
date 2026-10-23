@@ -4,6 +4,7 @@ import java.math.BigInteger
 import kotlin.math.abs
 
 /** A reduced rational number. Useful for frame rates such as 30000/1001. */
+@ConsistentCopyVisibility
 data class Rational private constructor(val numerator: Int, val denominator: Int) {
     val asDouble: Double get() = numerator.toDouble() / denominator.toDouble()
 

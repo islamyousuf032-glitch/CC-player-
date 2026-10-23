@@ -1,6 +1,7 @@
 package com.ccplayer.media.android.codec
 
 import android.media.MediaCodecList
+import android.os.Build
 import java.util.Locale
 
 data class CodecComponent(
@@ -40,9 +41,13 @@ object DeviceCodecCapabilities {
         val infos = runCatching { MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos.toList() }
             .getOrElse { emptyList() }
 
-        infos.filterNot { runCatching { it.isAlias }.getOrDefault(false) }.forEach { info ->
+        infos.filterNot { info ->
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && runCatching { info.isAlias }.getOrDefault(false)
+        }.forEach { info ->
             val isEncoder = info.isEncoder
-            val isHardware = runCatching { info.isHardwareAccelerated }.getOrDefault(false)
+            // Hardware/alias classification was added in API 29; remain conservative on 26–28.
+            val isHardware = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                runCatching { info.isHardwareAccelerated }.getOrDefault(false)
             val types = runCatching { info.supportedTypes.toList() }.getOrElse { emptyList() }
             types.forEach { type ->
                 val mime = type.lowercase(Locale.ROOT)

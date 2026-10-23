@@ -69,6 +69,7 @@ data class Timeline(val tracks: List<VideoTrack> = emptyList()) {
 
     fun trimClip(trackId: String, clipId: String, newSourceInUs: Long, newDurationUs: Long): Timeline {
         val track = tracks.firstOrNull { it.id == trackId } ?: error("Unknown track: $trackId")
+        check(track.clips.any { it.id == clipId }) { "Unknown clip: $clipId" }
         val updated = track.clips.map { clip ->
             if (clip.id == clipId) clip.copy(sourceInUs = newSourceInUs, durationUs = newDurationUs) else clip
         }
