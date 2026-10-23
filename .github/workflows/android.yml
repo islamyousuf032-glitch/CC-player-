@@ -69,6 +69,27 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Verify APK contents and signature
+        run: |
+          python3 - <<'PY'
+          import zipfile
+          apk = "app/build/outputs/apk/debug/app-debug.apk"
+          required = {
+              "THIRD_PARTY_NOTICES.md",
+              "licenses/MotionCam-Decoder-LICENSE.txt",
+              "licenses/nlohmann-json-LICENSE.txt",
+              "licenses/SIMDe-LICENSE.txt",
+              *{f"lib/{abi}/libccplayer_mcraw.so" for abi in ("arm64-v8a", "x86_64")},
+              *{f"lib/{abi}/libc++_shared.so" for abi in ("arm64-v8a", "x86_64")},
+          }
+          with zipfile.ZipFile(apk) as package:
+              missing = sorted(required - set(package.namelist()))
+          if missing:
+              raise SystemExit("APK is missing required entries: " + ", ".join(missing))
+          print(f"Verified {len(required)} required native/license APK entries.")
+          PY
+          "${ANDROID_HOME}/build-tools/36.0.0/apksigner" verify --verbose app/build/outputs/apk/debug/app-debug.apk
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:

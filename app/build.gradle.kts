@@ -3,10 +3,26 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-val bundleThirdPartyNotices = tasks.register<Copy>("bundleThirdPartyNotices") {
-    from(rootProject.file("THIRD_PARTY_NOTICES.md"))
-    from(rootProject.file("licenses")) { into("licenses") }
-    into(layout.buildDirectory.dir("generated/thirdPartyNoticeAssets"))
+abstract class BundleThirdPartyNoticesTask : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val notices: RegularFileProperty
+
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val licenses: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction
+    fun bundle() {
+        val output = outputDirectory.get().asFile
+        output.deleteRecursively()
+        output.mkdirs()
+        notices.get().asFile.copyTo(output.resolve("THIRD_PARTY_NOTICES.md"), overwrite = true)
+        licenses.get().asFile.copyRecursively(output.resolve("licenses"), overwrite = true)
+    }
 }
 
 android {
@@ -34,12 +50,6 @@ android {
         }
     }
 
-    sourceSets {
-        getByName("main") {
-            assets.srcDir(bundleThirdPartyNotices)
-        }
-    }
-
     buildFeatures {
         compose = true
     }
@@ -58,6 +68,21 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+    }
+}
+
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        val noticeAssets = tasks.register<BundleThirdPartyNoticesTask>(
+            "bundle${variant.name.replaceFirstChar(Char::uppercaseChar)}ThirdPartyNotices",
+        ) {
+            notices.set(rootProject.file("THIRD_PARTY_NOTICES.md"))
+            licenses.set(rootProject.file("licenses"))
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(
+            noticeAssets,
+            BundleThirdPartyNoticesTask::outputDirectory,
+        )
     }
 }
 
