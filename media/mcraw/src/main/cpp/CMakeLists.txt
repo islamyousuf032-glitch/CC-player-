@@ -9,12 +9,10 @@ FetchContent_Declare(
     URL "https://codeload.github.com/mirsadm/motioncam-decoder/tar.gz/b931ec0e2466c8217c49f13df925531b78f76e33"
     URL_HASH "SHA256=9839a478d7e59724f6ebd833adb33dd8177ebb5eaa0928b2a607bd28b480402c"
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    # Populate without adding upstream desktop targets to this Android build.
+    SOURCE_SUBDIR "ccplayer-no-upstream-targets"
 )
-
-FetchContent_GetProperties(motioncam_decoder_source)
-if(NOT motioncam_decoder_source_POPULATED)
-    FetchContent_Populate(motioncam_decoder_source)
-endif()
+FetchContent_MakeAvailable(motioncam_decoder_source)
 
 # Build only the Apache-2.0 decoder library, not upstream desktop examples.
 add_library(motioncam_decoder STATIC

@@ -3,6 +3,12 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val bundleThirdPartyNotices = tasks.register<Copy>("bundleThirdPartyNotices") {
+    from(rootProject.file("THIRD_PARTY_NOTICES.md"))
+    from(rootProject.file("licenses")) { into("licenses") }
+    into(layout.buildDirectory.dir("generated/thirdPartyNoticeAssets"))
+}
+
 android {
     namespace = "com.ccplayer.app"
     compileSdk = 37
@@ -25,6 +31,12 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+        }
+    }
+
+    sourceSets {
+        getByName("main") {
+            assets.srcDir(bundleThirdPartyNotices)
         }
     }
 

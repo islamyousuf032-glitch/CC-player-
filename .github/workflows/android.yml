@@ -43,7 +43,7 @@ jobs:
       - name: Unit tests and debug APK
         run: |
           set -o pipefail
-          ./gradlew :core:media:testDebugUnitTest :app:assembleDebug --stacktrace 2>&1 | tee "${RUNNER_TEMP}/cc-player-build.log"
+          ./gradlew :core:media:testDebugUnitTest :app:assembleDebug --console=plain 2>&1 | tee "${RUNNER_TEMP}/cc-player-build.log"
 
       - name: Publish failure diagnostics
         if: failure()
@@ -59,6 +59,15 @@ jobs:
             fi
             echo '```'
           } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload failed build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cc-player-failed-build-log
+          path: ${{ runner.temp }}/cc-player-build.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4

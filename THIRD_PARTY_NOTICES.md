@@ -13,9 +13,13 @@ original licenses.
 | Kotlin / JetBrains runtime | Language runtime | Apache-2.0 | https://github.com/JetBrains/kotlin |
 | Gradle wrapper | Build bootstrap | Apache-2.0 | https://github.com/gradle/gradle |
 
-The MotionCam decoder license is reproduced in `licenses/MotionCam-Decoder-LICENSE.txt`. Its source
-archive URL and SHA-256 are pinned in `third_party/native-dependencies.lock.json` and in the CMake
-configuration. Release packaging must preserve applicable license texts and notices.
+MotionCam decoder headers carry `Copyright 2023 MotionCam`. The applicable license texts are
+reproduced in `licenses/MotionCam-Decoder-LICENSE.txt`, `licenses/nlohmann-json-LICENSE.txt`, and
+`licenses/SIMDe-LICENSE.txt`. The same Apache-2.0 text applies to the Apache-licensed dependencies.
+The MotionCam source archive URL and SHA-256 are pinned in
+`third_party/native-dependencies.lock.json` and in the CMake configuration. The application Gradle
+configuration bundles these notices and license texts as APK assets; release packaging must preserve
+them and any additional notices introduced by future dependencies.
 
 ## Evaluated but not linked into this build
 
