@@ -3,9 +3,14 @@ plugins {
 }
 
 import org.gradle.api.tasks.PathSensitivity
+import org.gradle.process.ExecOperations
 import java.util.Properties
+import javax.inject.Inject
 
 abstract class BuildFfmpegTask : DefaultTask() {
+    @get:Inject
+    abstract val execOperations: ExecOperations
+
     @get:Input
     abstract val ndkPath: Property<String>
 
@@ -39,7 +44,7 @@ abstract class BuildFfmpegTask : DefaultTask() {
 
     @TaskAction
     fun build() {
-        project.exec {
+        execOperations.exec {
             workingDir = rootProject.projectDir
             commandLine(
                 "bash",

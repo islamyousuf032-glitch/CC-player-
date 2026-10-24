@@ -491,6 +491,11 @@ private fun ExportStatusBanner(state: PlayerUiState, viewModel: PlayerViewModel)
                     LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth())
                 }
             }
+            if (export.status == ExportStatus.RUNNING) {
+                export.etaSeconds?.let { eta ->
+                    Text("About ${formatTime(eta * 1000)} remaining", style = MaterialTheme.typography.labelSmall)
+                }
+            }
             export.message?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }

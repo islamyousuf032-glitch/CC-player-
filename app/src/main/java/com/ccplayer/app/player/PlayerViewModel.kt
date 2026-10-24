@@ -57,6 +57,7 @@ enum class ExportStatus { IDLE, RUNNING, COPYING, SUCCESS, ERROR }
 data class ExportUiState(
     val status: ExportStatus = ExportStatus.IDLE,
     val progress: Int? = null,
+    val etaSeconds: Long? = null,
     val message: String? = null,
     val selectedProfileId: String = ExportProfiles.H264.id,
 )
@@ -120,6 +121,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var exportJob: Job? = null
     private var exportDestinationUri: Uri? = null
     private var exportTemporaryFile: File? = null
+    private var exportStartedAtNanos = 0L
 
     init {
         playbackEngine.setColorGrade(mutableUiState.value.grade)
@@ -418,6 +420,16 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         return "$base-${profile.id}.${profile.container.extension}"
     }
 
+    private fun preflightExportStorage(input: Uri) {
+        val sourceBytes = contentResolver.openAssetFileDescriptor(input, "r")?.use { it.length } ?: -1
+        val estimated = if (sourceBytes > 0) sourceBytes.coerceAtMost(Long.MAX_VALUE / 2) * 2 else 256L * 1024 * 1024
+        val required = maxOf(256L * 1024 * 1024, estimated)
+        val available = getApplication<Application>().cacheDir.usableSpace
+        if (available < required) {
+            throw IOException("Export needs approximately ${required / 1024 / 1024} MiB free for its verified temporary output; only ${available / 1024 / 1024} MiB is available")
+        }
+    }
+
     fun startExport(destinationUri: Uri) {
         val input = currentUri ?: return
         val state = mutableUiState.value
@@ -431,7 +443,16 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
 
+        runCatching { preflightExportStorage(input) }.onFailure { error ->
+            mutableUiState.update {
+                it.copy(export = it.export.copy(status = ExportStatus.ERROR, message = error.message))
+            }
+            return
+        }
         playbackEngine.pause()
+        ExportForegroundService.start(getApplication())
+        exportStartedAtNanos = System.nanoTime()
+        ExportForegroundService.progress(null)
         exportDestinationUri = destinationUri
         val temporary = File(
             getApplication<Application>().cacheDir,
@@ -461,6 +482,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 }
 
                 override fun onError(message: String) {
+                    ExportForegroundService.stop(getApplication())
                     exportTemporaryFile?.delete()
                     mutableUiState.update {
                         it.copy(export = it.export.copy(status = ExportStatus.ERROR, message = message))
@@ -489,10 +511,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 )
                 val result = withContext(Dispatchers.IO) {
                     nativeExportEngine.export(request) { percent, _ ->
-                        mutableUiState.update { it.copy(export = it.export.copy(progress = percent)) }
+                        updateExportProgress(percent)
                     }
                 }
                 if (result.cancelled) {
+                    ExportForegroundService.stop(getApplication())
                     mutableUiState.update { it.copy(export = ExportUiState(selectedProfileId = it.export.selectedProfileId)) }
                 } else {
                     mutableUiState.update { it.copy(export = it.export.copy(status = ExportStatus.COPYING)) }
@@ -501,9 +524,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     copyExportToDestination(temporary, summary)
                 }
             } catch (cancelled: CancellationException) {
+                ExportForegroundService.stop(getApplication())
                 temporary.delete()
                 throw cancelled
             } catch (error: Throwable) {
+                ExportForegroundService.stop(getApplication())
                 temporary.delete()
                 mutableUiState.update {
                     it.copy(export = it.export.copy(status = ExportStatus.ERROR, message = error.message ?: "Native export failed"))
@@ -512,12 +537,20 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    private fun updateExportProgress(percent: Int) {
+        val bounded = percent.coerceIn(0, 100)
+        val elapsedSeconds = (System.nanoTime() - exportStartedAtNanos) / 1_000_000_000L
+        val eta = if (bounded in 1..99) (elapsedSeconds * (100 - bounded) / bounded).coerceAtLeast(0) else null
+        ExportForegroundService.progress(bounded)
+        mutableUiState.update { it.copy(export = it.export.copy(progress = bounded, etaSeconds = eta)) }
+    }
+
     private fun startExportProgressUpdates() {
         exportJob?.cancel()
         exportJob = viewModelScope.launch {
             while (exportEngine.isRunning) {
                 val progress = exportEngine.progress()
-                mutableUiState.update { it.copy(export = it.export.copy(progress = progress)) }
+                updateExportProgress(progress)
                 delay(250)
             }
         }
@@ -529,6 +562,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     ) {
         val destination = exportDestinationUri
         if (destination == null) {
+            ExportForegroundService.stop(getApplication())
             outputFile.delete()
             exportTemporaryFile = null
             mutableUiState.update {
@@ -569,6 +603,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     it.copy(export = it.export.copy(status = ExportStatus.ERROR, message = error.message))
                 }
             } finally {
+                ExportForegroundService.stop(getApplication())
                 outputFile.delete()
                 if (exportTemporaryFile == outputFile) {
                     exportTemporaryFile = null
@@ -579,6 +614,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun cancelExport() {
+        ExportForegroundService.stop(getApplication())
         exportEngine.cancel()
         nativeExportEngine.cancel()
         exportJob?.cancel()
@@ -618,6 +654,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         exportJob?.cancel()
         exportEngine.cancel()
         nativeExportEngine.cancel()
+        ExportForegroundService.stop(getApplication())
         exportTemporaryFile?.delete()
         saveCurrentPosition()
         playbackEngine.close()

@@ -8,6 +8,8 @@ data class Clip(
     val timelineStartUs: Long,
     val sourceInUs: Long,
     val durationUs: Long,
+    val speedNumerator: Int = 1,
+    val speedDenominator: Int = 1,
     val grade: ColorGrade = ColorGrade.IDENTITY,
 ) {
     init {
@@ -16,9 +18,14 @@ data class Clip(
         require(timelineStartUs >= 0) { "Timeline start cannot be negative" }
         require(sourceInUs >= 0) { "Source in-point cannot be negative" }
         require(durationUs > 0) { "Clip duration must be positive" }
+        require(speedNumerator > 0 && speedDenominator > 0) { "Clip speed must be a positive rational" }
+        require(Math.multiplyExact(durationUs, speedNumerator.toLong()) / speedDenominator > 0) {
+            "Clip speed produces a zero-length source range"
+        }
     }
 
     val timelineEndUs: Long get() = timelineStartUs + durationUs
+    val sourceDurationUs: Long get() = Math.multiplyExact(durationUs, speedNumerator.toLong()) / speedDenominator
 }
 
 data class VideoTrack(
@@ -38,9 +45,9 @@ data class VideoTrack(
 
 data class Timeline(val tracks: List<VideoTrack> = emptyList()) {
     init {
-        require(tracks.map(VideoTrack::id).distinct().size == tracks.size) {
-            "Track ids must be unique"
-        }
+        require(tracks.map(VideoTrack::id).distinct().size == tracks.size) { "Track ids must be unique" }
+        val clipIds = tracks.flatMap(VideoTrack::clips).map(Clip::id)
+        require(clipIds.distinct().size == clipIds.size) { "Clip ids must be unique across the timeline" }
     }
 
     val durationUs: Long get() = tracks.flatMap(VideoTrack::clips).maxOfOrNull(Clip::timelineEndUs) ?: 0L
@@ -57,10 +64,11 @@ data class Timeline(val tracks: List<VideoTrack> = emptyList()) {
         }
 
         val leftDuration = atUs - clip.timelineStartUs
+        val leftSourceDuration = Math.multiplyExact(leftDuration, clip.speedNumerator.toLong()) / clip.speedDenominator
         val right = clip.copy(
             id = newClipId,
             timelineStartUs = atUs,
-            sourceInUs = clip.sourceInUs + leftDuration,
+            sourceInUs = clip.sourceInUs + leftSourceDuration,
             durationUs = clip.durationUs - leftDuration,
         )
         val left = clip.copy(durationUs = leftDuration)
@@ -79,6 +87,85 @@ data class Timeline(val tracks: List<VideoTrack> = emptyList()) {
     fun removeClip(trackId: String, clipId: String): Timeline {
         val track = tracks.firstOrNull { it.id == trackId } ?: error("Unknown track: $trackId")
         return replaceClips(trackId, track.clips.filterNot { it.id == clipId })
+    }
+
+    fun moveClip(trackId: String, clipId: String, targetTrackId: String, newTimelineStartUs: Long): Timeline {
+        require(newTimelineStartUs >= 0) { "Timeline start cannot be negative" }
+        val source = tracks.firstOrNull { it.id == trackId } ?: error("Unknown track: $trackId")
+        check(tracks.any { it.id == targetTrackId }) { "Unknown track: $targetTrackId" }
+        val clip = source.clips.firstOrNull { it.id == clipId } ?: error("Unknown clip: $clipId")
+        val moved = clip.copy(timelineStartUs = newTimelineStartUs)
+        val updated = tracks.map { track ->
+            val remaining = track.clips.filterNot { it.id == clipId }
+            if (track.id == targetTrackId) track.copy(clips = remaining + moved) else track.copy(clips = remaining)
+        }
+        return Timeline(updated)
+    }
+
+    fun rippleDelete(trackId: String, clipId: String): Timeline {
+        val track = tracks.firstOrNull { it.id == trackId } ?: error("Unknown track: $trackId")
+        val clip = track.clips.firstOrNull { it.id == clipId } ?: error("Unknown clip: $clipId")
+        val updated = track.clips.filterNot { it.id == clipId }.map { later ->
+            if (later.timelineStartUs >= clip.timelineEndUs) later.copy(timelineStartUs = later.timelineStartUs - clip.durationUs) else later
+        }
+        return replaceClips(trackId, updated)
+    }
+
+    fun rippleTrim(trackId: String, clipId: String, newSourceInUs: Long, newDurationUs: Long): Timeline {
+        val track = tracks.firstOrNull { it.id == trackId } ?: error("Unknown track: $trackId")
+        val clip = track.clips.firstOrNull { it.id == clipId } ?: error("Unknown clip: $clipId")
+        require(newDurationUs > 0) { "Clip duration must be positive" }
+        val delta = newDurationUs - clip.durationUs
+        val updated = track.clips.map { item ->
+            when {
+                item.id == clipId -> item.copy(sourceInUs = newSourceInUs, durationUs = newDurationUs)
+                item.timelineStartUs >= clip.timelineEndUs -> item.copy(timelineStartUs = item.timelineStartUs + delta)
+                else -> item
+            }
+        }
+        return replaceClips(trackId, updated)
+    }
+
+    /** Changes the source window while preserving the clip's timeline position and duration. */
+    fun slipClip(trackId: String, clipId: String, newSourceInUs: Long, sourceDurationUs: Long): Timeline {
+        val track = tracks.firstOrNull { it.id == trackId } ?: error("Unknown track: $trackId")
+        val clip = track.clips.firstOrNull { it.id == clipId } ?: error("Unknown clip: $clipId")
+        require(sourceDurationUs >= 0 && newSourceInUs >= 0 && newSourceInUs <= sourceDurationUs - clip.sourceDurationUs) {
+            "Slip would move the clip outside its source media"
+        }
+        return replaceClips(trackId, track.clips.map { if (it.id == clipId) it.copy(sourceInUs = newSourceInUs) else it })
+    }
+
+    /** Moves the timeline window without changing the source in-point. */
+    fun slideClip(trackId: String, clipId: String, newTimelineStartUs: Long): Timeline =
+        moveClip(trackId, clipId, trackId, newTimelineStartUs)
+
+    fun setClipSpeed(trackId: String, clipId: String, numerator: Int, denominator: Int, ripple: Boolean = true): Timeline {
+        require(numerator > 0 && denominator > 0) { "Clip speed must be a positive rational" }
+        val track = tracks.firstOrNull { it.id == trackId } ?: error("Unknown track: $trackId")
+        val clip = track.clips.firstOrNull { it.id == clipId } ?: error("Unknown clip: $clipId")
+        val sourceDuration = clip.sourceDurationUs
+        val newDuration = Math.multiplyExact(sourceDuration, denominator.toLong()) / numerator
+        require(newDuration > 0) { "Speed produces a zero-duration clip" }
+        val delta = newDuration - clip.durationUs
+        val updated = track.clips.map { item ->
+            when {
+                item.id == clipId -> item.copy(
+                    durationUs = newDuration,
+                    speedNumerator = numerator,
+                    speedDenominator = denominator,
+                )
+                ripple && item.timelineStartUs >= clip.timelineEndUs -> item.copy(timelineStartUs = item.timelineStartUs + delta)
+                else -> item
+            }
+        }
+        return replaceClips(trackId, updated)
+    }
+
+    fun snapPosition(positionUs: Long, candidates: Collection<Long>, thresholdUs: Long): Long {
+        require(positionUs >= 0 && thresholdUs >= 0 && candidates.all { it >= 0 }) { "Snap times must be non-negative" }
+        val nearest = candidates.minByOrNull { candidate -> Math.abs(candidate - positionUs) } ?: return positionUs
+        return if (Math.abs(nearest - positionUs) <= thresholdUs) nearest else positionUs
     }
 
     private fun replaceClips(trackId: String, clips: List<Clip>): Timeline = copy(

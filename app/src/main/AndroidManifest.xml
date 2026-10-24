@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING" />
+
     <!-- Files are opened through the Storage Access Framework; no broad storage permission. -->
     <application
         android:allowBackup="false"
@@ -10,6 +13,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.CCPlayer"
         android:usesCleartextTraffic="false">
+        <service
+            android:name=".player.ExportForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProcessing" />
         <activity
             android:name=".MainActivity"
             android:exported="true">
