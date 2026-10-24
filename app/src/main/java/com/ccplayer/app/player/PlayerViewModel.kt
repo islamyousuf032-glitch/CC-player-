@@ -26,6 +26,11 @@ import com.ccplayer.media.mcraw.McrawInfo
 import com.ccplayer.media.mcraw.McrawPlaybackController
 import com.ccplayer.media.ffmpeg.FFmpegExportEngine
 import com.ccplayer.media.ffmpeg.FFmpegRuntimeInfo
+import com.ccplayer.media.ffmpeg.FFmpegImageDecoder
+import com.ccplayer.media.ffmpeg.ImageSequenceInfo
+import com.ccplayer.media.ffmpeg.ImageSequenceReader
+import com.ccplayer.media.ffmpeg.SequencePlaybackController
+import com.ccplayer.media.ffmpeg.SequencePlaybackState
 import com.ccplayer.media.ffmpeg.NativeAudioCodec
 import com.ccplayer.media.ffmpeg.NativeExportRequest
 import com.ccplayer.media.ffmpeg.NativeMediaInfo
@@ -45,7 +50,7 @@ import java.io.File
 import java.io.IOException
 import java.util.UUID
 
-enum class MediaKind { NONE, VIDEO, MCRAW, UNSUPPORTED }
+enum class MediaKind { NONE, VIDEO, MCRAW, SEQUENCE, UNSUPPORTED }
 enum class VideoResizeMode { FIT, FILL, CROP }
 enum class ExportStatus { IDLE, RUNNING, COPYING, SUCCESS, ERROR }
 
@@ -75,6 +80,8 @@ data class PlayerUiState(
     val mcrawDurationUs: Long = 0,
     val mcrawDroppedFrames: Int = 0,
     val mcrawPlaybackError: String? = null,
+    val sequenceInfo: ImageSequenceInfo? = null,
+    val sequencePlayback: SequencePlaybackState = SequencePlaybackState(),
     val codecReport: DeviceCodecReport? = null,
     val nativeInfo: NativeMediaInfo? = null,
     val ffmpegRuntime: FFmpegRuntimeInfo? = null,
@@ -92,6 +99,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private val nativeExportEngine = FFmpegExportEngine(application)
     private val mcrawDecoder = McrawDecoder(application)
     private val mcrawPlayback = McrawPlaybackController(application)
+    private val sequenceReader = ImageSequenceReader(application)
+    private val sequencePlayback = SequencePlaybackController(FFmpegImageDecoder(application))
     private val contentResolver = application.contentResolver
     private val preferences = PlayerPreferences(application)
     private val mutableUiState = MutableStateFlow(
@@ -106,6 +115,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     private var currentUri: Uri? = null
     private var mcrawJob: Job? = null
+    private var sequenceJob: Job? = null
     private var probeJob: Job? = null
     private var exportJob: Job? = null
     private var exportDestinationUri: Uri? = null
@@ -136,6 +146,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
         viewModelScope.launch {
+            sequencePlayback.state.collect { sequence ->
+                mutableUiState.update { it.copy(sequencePlayback = sequence) }
+            }
+        }
+        viewModelScope.launch {
             playbackEngine.backend.collect { backend ->
                 mutableUiState.update { it.copy(playbackBackend = backend) }
             }
@@ -163,6 +178,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         saveCurrentPosition()
         mcrawJob?.cancel()
         mcrawPlayback.pause()
+        sequenceJob?.cancel()
+        sequencePlayback.pause()
         probeJob?.cancel()
         playbackEngine.clear()
         currentUri = uri
@@ -209,6 +226,65 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun openRecent(uri: Uri) {
+        if (DocumentsContract.isTreeUri(uri)) openSequence(uri) else openMedia(uri)
+    }
+
+    fun openSequence(treeUri: Uri) {
+        if (exportEngine.isRunning || nativeExportEngine.isRunning || mutableUiState.value.export.status == ExportStatus.COPYING) {
+            setNotice("Finish or cancel the current export before opening another file")
+            return
+        }
+        runCatching { contentResolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        saveCurrentPosition()
+        mcrawJob?.cancel()
+        mcrawPlayback.pause()
+        sequenceJob?.cancel()
+        sequencePlayback.pause()
+        probeJob?.cancel()
+        playbackEngine.clear()
+        currentUri = treeUri
+        val previous = mutableUiState.value
+        val sequenceName = "Sequence • ${DocumentsContract.getTreeDocumentId(treeUri).substringAfterLast('/')}"
+        val recents = preferences.recordOpen(treeUri, sequenceName)
+        mutableUiState.value = PlayerUiState(
+            mediaName = sequenceName,
+            recentMedia = recents,
+            grade = previous.grade,
+            resizeMode = previous.resizeMode,
+            codecReport = previous.codecReport,
+            ffmpegRuntime = previous.ffmpegRuntime,
+            nativeError = previous.nativeError,
+            isBusy = true,
+        )
+        sequenceJob = viewModelScope.launch {
+            runCatching { sequenceReader.read(treeUri) }
+                .onSuccess { info ->
+                    if (currentUri == treeUri) {
+                        mutableUiState.update { it.copy(mediaKind = MediaKind.SEQUENCE, sequenceInfo = info, isBusy = false) }
+                        sequencePlayback.open(info, startPositionUs = preferences.positionFor(treeUri) * 1_000L)
+                    }
+                }
+                .onFailure { error ->
+                    if (currentUri == treeUri) {
+                        mutableUiState.update {
+                            it.copy(mediaKind = MediaKind.UNSUPPORTED, isBusy = false, unsupportedDetail = error.message)
+                        }
+                    }
+                }
+        }
+    }
+
+    fun playSequencePause() = sequencePlayback.playPause()
+    fun renderSequenceFrame(index: Int) = sequencePlayback.seekFrame(index)
+    fun cycleSequenceFrameRate() {
+        val rates = listOf(24000 to 1001, 24 to 1, 25 to 1, 30000 to 1001, 30 to 1, 60 to 1)
+        val state = mutableUiState.value.sequencePlayback
+        val current = state.frameRateNum.toDouble() / state.frameRateDen
+        val next = rates.firstOrNull { it.first.toDouble() / it.second > current + 0.001 } ?: rates.first()
+        sequencePlayback.setFrameRate(next.first, next.second)
+    }
+
     private fun resumeVideoPosition(uri: Uri) {
         val saved = preferences.positionFor(uri)
         if (saved > 500) playbackEngine.scrubTo(saved)
@@ -219,6 +295,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         val position = when (mutableUiState.value.mediaKind) {
             MediaKind.VIDEO -> mutableUiState.value.playback.positionMs
             MediaKind.MCRAW -> mutableUiState.value.mcrawPositionUs / 1_000L
+            MediaKind.SEQUENCE -> mutableUiState.value.sequencePlayback.positionUs / 1_000L
             else -> return
         }
         preferences.savePosition(uri, position)
@@ -276,6 +353,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         saveCurrentPosition()
         playbackEngine.pause()
         mcrawPlayback.pause()
+        sequencePlayback.pause()
     }
     fun seekBy(deltaMs: Long) = playbackEngine.seekBy(deltaMs)
     fun beginScrubbing() = playbackEngine.beginScrubbing()
@@ -535,6 +613,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     override fun onCleared() {
         mcrawJob?.cancel()
+        sequenceJob?.cancel()
         probeJob?.cancel()
         exportJob?.cancel()
         exportEngine.cancel()
@@ -543,6 +622,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         saveCurrentPosition()
         playbackEngine.close()
         mcrawPlayback.close()
+        sequencePlayback.close()
         super.onCleared()
     }
 }

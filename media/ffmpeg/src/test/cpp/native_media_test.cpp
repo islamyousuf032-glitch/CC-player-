@@ -243,6 +243,9 @@ void run() {
     require(proresResult.encodedFrames == kFrames, "ProRes HQ frame count");
     require(proresResult.bitDepth == 10 && av_get_pix_fmt(proresResult.pixelFormat.c_str()) == AV_PIX_FMT_YUV422P10, "ProRes HQ precision");
     std::cout << "ProRes HQ: " << toJson(proresResult) << '\n';
+    const auto image = decodeImage(prores.outputPath, 160);
+    require(image.width == 160 && image.height == 120 && image.pixels.size() == static_cast<size_t>(160 * 120),
+        "scaled native image/sequence frame decode");
 
     auto prores4444 = request(input, directory + "/prores-4444.mov");
     prores4444.codec = "prores_ks";

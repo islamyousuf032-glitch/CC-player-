@@ -86,6 +86,9 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
     val openLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(viewModel::openMedia)
     }
+    val sequenceLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        uri?.let(viewModel::openSequence)
+    }
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("video/*"),
     ) { uri ->
@@ -150,8 +153,9 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
                 MediaKind.NONE -> WelcomeScreen(
                     onOpen = { openLauncher.launch(arrayOf("*/*")) },
                     recents = state.recentMedia,
-                    onRecent = viewModel::openMedia,
+                    onRecent = viewModel::openRecent,
                     onRemove = viewModel::removeRecent,
+                    onOpenSequence = { sequenceLauncher.launch(null) },
                 )
                 MediaKind.VIDEO -> VideoWorkspace(
                     state = state,
@@ -159,6 +163,11 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
                     onOpen = { openLauncher.launch(arrayOf("*/*")) },
                 )
                 MediaKind.MCRAW -> McrawWorkspace(
+                    state = state,
+                    viewModel = viewModel,
+                    onOpen = { openLauncher.launch(arrayOf("*/*")) },
+                )
+                MediaKind.SEQUENCE -> SequenceWorkspace(
                     state = state,
                     viewModel = viewModel,
                     onOpen = { openLauncher.launch(arrayOf("*/*")) },
@@ -201,6 +210,7 @@ private fun WelcomeScreen(
     recents: List<RecentMedia>,
     onRecent: (android.net.Uri) -> Unit,
     onRemove: (android.net.Uri) -> Unit,
+    onOpenSequence: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -241,7 +251,11 @@ private fun WelcomeScreen(
             Spacer(Modifier.width(8.dp))
             Text("Open video or MCRAW")
         }
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(10.dp))
+        OutlinedButton(onClick = onOpenSequence, modifier = Modifier.fillMaxWidth()) {
+            Text("Open EXR / DPX / PNG image sequence")
+        }
+        Spacer(Modifier.height(18.dp))
         FoundationCard()
         if (recents.isNotEmpty()) {
             Spacer(Modifier.height(16.dp))
@@ -554,10 +568,69 @@ private fun McrawWorkspace(state: PlayerUiState, viewModel: PlayerViewModel, onO
 }
 
 @Composable
+private fun SequenceWorkspace(state: PlayerUiState, viewModel: PlayerViewModel, onOpen: () -> Unit) {
+    val playback = state.sequencePlayback
+    Column(Modifier.fillMaxSize()) {
+        MediaHeader(state.mediaName.orEmpty(), "FFMPEG IMAGE SEQUENCE • RATIONAL FPS")
+        Box(
+            modifier = Modifier.fillMaxWidth().weight(1f).background(Color.Black),
+            contentAlignment = Alignment.Center,
+        ) {
+            playback.preview?.let { PreviewImage(it) }
+            if (playback.preview == null && playback.error == null) CircularProgressIndicator()
+            playback.error?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(20.dp), textAlign = TextAlign.Center)
+            }
+        }
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                FilledIconButton(onClick = viewModel::playSequencePause) {
+                    Icon(
+                        if (playback.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        contentDescription = if (playback.isPlaying) "Pause sequence" else "Play sequence",
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                TextButton(onClick = viewModel::cycleSequenceFrameRate) {
+                    Text("${String.format(Locale.ROOT, "%.3f", playback.frameRateNum.toDouble() / playback.frameRateDen)} fps")
+                }
+                Text(
+                    "${formatTime(playback.positionUs / 1000)} / ${formatTime(playback.durationUs / 1000)}",
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
+            if (playback.frameCount > 1) {
+                var pendingFrame by remember(state.sequenceInfo) { mutableStateOf<Int?>(null) }
+                Slider(
+                    value = (pendingFrame ?: playback.frameIndex).toFloat(),
+                    onValueChange = { pendingFrame = it.toInt() },
+                    onValueChangeFinished = {
+                        pendingFrame?.let(viewModel::renderSequenceFrame)
+                        pendingFrame = null
+                    },
+                    valueRange = 0f..(playback.frameCount - 1).toFloat(),
+                    steps = (playback.frameCount - 2).coerceIn(0, 100),
+                )
+                Text("Frame ${(pendingFrame ?: playback.frameIndex) + 1} / ${playback.frameCount} • dropped ${playback.droppedFrames}")
+            }
+            state.sequenceInfo?.let { info ->
+                Text(
+                    if (info.gapCount > 0) "${info.gapCount} numeric frame gaps detected; timestamps remain contiguous by explicit policy" else "Natural numeric sorting • no detected frame-number gaps",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (info.gapCount > 0) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text("Native FFmpeg frame decode with one-frame read-ahead. Sequences have no embedded audio; decode rate remains device/source dependent.", style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = onOpen, modifier = Modifier.fillMaxWidth()) { Text("Open another file") }
+        }
+    }
+}
+
+@Composable
 private fun PreviewImage(bitmap: Bitmap) {
     Image(
         bitmap = bitmap.asImageBitmap(),
-        contentDescription = "MCRAW draft frame",
+        contentDescription = "Decoded video frame",
         modifier = Modifier.fillMaxSize(),
         contentScale = ContentScale.Fit,
     )

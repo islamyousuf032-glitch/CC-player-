@@ -63,6 +63,14 @@ MediaInfo probe(const std::string& inputPath);
 std::string toJson(const MediaInfo& info);
 std::string runtimeInfoJson();
 
+struct ImageFrame {
+    int width = 0;
+    int height = 0;
+    std::vector<uint32_t> pixels; // Android ARGB_8888 integers on little-endian targets.
+};
+
+ImageFrame decodeImage(const std::string& inputPath, int maxDimension);
+
 struct ExportRequest {
     std::string inputPath;
     std::string outputPath;

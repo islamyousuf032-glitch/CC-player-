@@ -111,3 +111,23 @@ Java_com_ccplayer_media_ffmpeg_FFmpegNative_nativeExport(
         return ccplayer::ffmpeg::toJson(ccplayer::ffmpeg::transcode(request, onProgress, isCancelled));
     });
 }
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_ccplayer_media_ffmpeg_FFmpegImageDecoder_nativeDecode(JNIEnv* env, jobject, jint fd, jint maxDimension) {
+    try {
+        const auto image = ccplayer::ffmpeg::decodeImage("/proc/self/fd/" + std::to_string(fd), maxDimension);
+        if (image.pixels.size() + 2 > static_cast<size_t>(INT32_MAX)) throw ccplayer::ffmpeg::Error(ENOMEM, "Decoded image is too large");
+        auto result = env->NewIntArray(static_cast<jsize>(image.pixels.size() + 2));
+        if (!result) return nullptr;
+        const jint dimensions[2] = {image.width, image.height};
+        env->SetIntArrayRegion(result, 0, 2, dimensions);
+        static_assert(sizeof(jint) == sizeof(uint32_t), "Android pixel integers must be 32-bit");
+        env->SetIntArrayRegion(result, 2, static_cast<jsize>(image.pixels.size()), reinterpret_cast<const jint*>(image.pixels.data()));
+        return result;
+    } catch (const std::exception& error) {
+        throwException(env, error.what());
+    } catch (...) {
+        throwException(env, "Unknown native image decode failure");
+    }
+    return nullptr;
+}

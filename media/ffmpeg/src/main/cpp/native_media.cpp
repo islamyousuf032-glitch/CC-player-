@@ -1,7 +1,10 @@
 #include "native_media.h"
 #include "ffmpeg_raii.h"
+#include "color_pipeline.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <sstream>
 
 namespace ccplayer::ffmpeg {
@@ -77,6 +80,62 @@ MediaInfo probe(const std::string& inputPath) {
             }
         }
         result.streams.push_back(std::move(info));
+    }
+    return result;
+}
+
+ImageFrame decodeImage(const std::string& inputPath, int maxDimension) {
+    if (maxDimension < 64 || maxDimension > 4096) throw Error(AVERROR(EINVAL), "Image preview dimension must be between 64 and 4096");
+    LogCapture logs;
+    auto input = openInput(inputPath, logs);
+    const int streamIndex = av_find_best_stream(input.get(), AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
+    if (streamIndex < 0) throw Error(AVERROR(EINVAL), "The image/sequence frame has no decodable video stream");
+    auto decoder = openDecoder(input.get(), streamIndex, 2, logs);
+    FramePtr decoded;
+    auto receive = [&]() -> bool {
+        while (true) {
+            auto frame = makeFrame();
+            const int result = avcodec_receive_frame(decoder.get(), frame.get());
+            if (result == AVERROR(EAGAIN) || result == AVERROR_EOF) return false;
+            if (result == AVERROR_INVALIDDATA) continue;
+            check(result, "Could not decode image frame", logs);
+            decoded = std::move(frame);
+            return true;
+        }
+    };
+    bool reachedEof = false;
+    while (!decoded) {
+        auto packet = makePacket();
+        const int read = av_read_frame(input.get(), packet.get());
+        if (read == AVERROR_EOF) {
+            if (reachedEof) break;
+            reachedEof = true;
+            check(avcodec_send_packet(decoder.get(), nullptr), "Could not drain image decoder", logs);
+        } else {
+            check(read, "Could not read image packet", logs);
+            if (packet->stream_index != streamIndex) continue;
+            const int sent = avcodec_send_packet(decoder.get(), packet.get());
+            if (sent < 0 && sent != AVERROR_INVALIDDATA) check(sent, "Could not submit image packet", logs);
+        }
+        receive();
+    }
+    if (!decoded) throw Error(AVERROR(EINVAL), "No image frame could be decoded");
+    const float scale = std::min(1.0f, static_cast<float>(maxDimension) / std::max(decoded->width, decoded->height));
+    const int width = std::max(1, static_cast<int>(std::lround(decoded->width * scale)));
+    const int height = std::max(1, static_cast<int>(std::lround(decoded->height * scale)));
+    const std::array<float, 16> identity = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+    ColorPipeline color(width, height, AV_PIX_FMT_BGRA, AVCOL_SPC_RGB, AVCOL_RANGE_JPEG, identity, false, AVCOL_TRC_IEC61966_2_1);
+    auto converted = color.process(decoded.get(), logs);
+    ImageFrame result;
+    result.width = width;
+    result.height = height;
+    result.pixels.resize(static_cast<size_t>(width) * height);
+    for (int y = 0; y < height; ++y) {
+        std::memcpy(
+            result.pixels.data() + static_cast<size_t>(y) * width,
+            converted->data[0] + static_cast<ptrdiff_t>(y) * converted->linesize[0],
+            static_cast<size_t>(width) * sizeof(uint32_t)
+        );
     }
     return result;
 }
