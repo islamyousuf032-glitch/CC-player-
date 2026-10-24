@@ -87,7 +87,7 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
         uri?.let(viewModel::openMedia)
     }
     val exportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("video/mp4"),
+        ActivityResultContracts.CreateDocument("video/*"),
     ) { uri ->
         uri?.let(viewModel::startExport)
     }
@@ -175,9 +175,9 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
     }
     if (state.showExportSheet) {
         ExportSheet(
-            selectedCodec = state.export.selectedCodec,
-            isCodecEnabled = viewModel::isExportCodecEnabled,
-            onCodecSelected = viewModel::selectExportCodec,
+            selectedProfileId = state.export.selectedProfileId,
+            isProfileEnabled = viewModel::isExportProfileEnabled,
+            onProfileSelected = viewModel::selectExportProfile,
             onDismiss = { viewModel.showExportSheet(false) },
             onChooseDestination = { exportLauncher.launch(viewModel.suggestedExportFileName()) },
         )

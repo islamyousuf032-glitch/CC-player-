@@ -62,30 +62,42 @@ jobs:
             echo '```'
           } >> "${GITHUB_STEP_SUMMARY}"
 
-      - name: Upload failed build log
+      - name: Upload failed build and native logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: cc-player-failed-build-log
-          path: ${{ runner.temp }}/cc-player-build.log
+          path: |
+            ${{ runner.temp }}/cc-player-build.log
+            media/ffmpeg/build/ffmpeg/config/**
           if-no-files-found: ignore
           retention-days: 7
 
       - name: Verify APK contents and signature
         run: |
           python3 - <<'PY'
+          import re
           import zipfile
           apk = "app/build/outputs/apk/debug/app-debug.apk"
           required = {
               "assets/THIRD_PARTY_NOTICES.md",
+              "assets/FFMPEG_SOURCE_OFFER.md",
+              "assets/FFMPEG_RELINKING.md",
               "assets/licenses/MotionCam-Decoder-LICENSE.txt",
               "assets/licenses/nlohmann-json-LICENSE.txt",
               "assets/licenses/SIMDe-LICENSE.txt",
+              "assets/licenses/FFmpeg-LGPL-2.1.txt",
+              "assets/licenses/OpenAPV-BSD-3-Clause.txt",
               *{f"lib/{abi}/libccplayer_mcraw.so" for abi in ("arm64-v8a", "x86_64")},
+              *{f"lib/{abi}/libccplayer_ffmpeg.so" for abi in ("arm64-v8a", "x86_64")},
               *{f"lib/{abi}/libc++_shared.so" for abi in ("arm64-v8a", "x86_64")},
+              *{f"lib/{abi}/{name}.so" for abi in ("arm64-v8a", "x86_64") for name in ("libavcodec", "libavformat", "libavutil", "libswresample", "libswscale")},
           }
           with zipfile.ZipFile(apk) as package:
-              missing = sorted(required - set(package.namelist()))
+              names = set(package.namelist())
+              missing = sorted(required - names)
+              if any(name.startswith("lib/") and re.search(r"\.so\.\d+$", name) for name in names):
+                  raise SystemExit("APK contains a versioned native library that Android cannot reliably load")
           if missing:
               raise SystemExit("APK is missing required entries: " + ", ".join(missing))
           print(f"Verified {len(required)} required native/license APK entries.")
@@ -100,11 +112,51 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Upload corresponding native source and relinking inputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: cc-player-native-source-and-relink
+          path: |
+            media/ffmpeg/build/ffmpeg/downloads/*.tar.gz
+            media/ffmpeg/build/ffmpeg/config/**
+            scripts/build-ffmpeg-android.sh
+            scripts/ffmpeg-components.sh
+            scripts/replace-ffmpeg-libraries.sh
+            third_party/native-dependencies.lock.json
+            third_party/patches/*
+            docs/FFMPEG_SOURCE_OFFER.md
+            docs/FFMPEG_RELINKING.md
+            licenses/FFmpeg-LGPL-2.1.txt
+            licenses/OpenAPV-BSD-3-Clause.txt
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cc-player-test-reports
           path: core/media/build/reports/tests/**
+          if-no-files-found: ignore
+          retention-days: 7
+
+  native-host-verification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Build pinned native stack and run ASan integration matrix
+        run: bash scripts/test-ffmpeg-host.sh media/ffmpeg/build/host-verification 4
+
+      - name: Upload native verification results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cc-player-native-host-test-results
+          path: |
+            media/ffmpeg/build/host-verification/native-test-results.log
+            media/ffmpeg/build/host-verification/work/*.log
           if-no-files-found: ignore
           retention-days: 7

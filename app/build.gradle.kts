@@ -12,6 +12,14 @@ abstract class BundleThirdPartyNoticesTask : DefaultTask() {
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val licenses: DirectoryProperty
 
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val sourceOffer: RegularFileProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val relinkingGuide: RegularFileProperty
+
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
 
@@ -22,6 +30,8 @@ abstract class BundleThirdPartyNoticesTask : DefaultTask() {
         output.mkdirs()
         notices.get().asFile.copyTo(output.resolve("THIRD_PARTY_NOTICES.md"), overwrite = true)
         licenses.get().asFile.copyRecursively(output.resolve("licenses"), overwrite = true)
+        sourceOffer.get().asFile.copyTo(output.resolve("FFMPEG_SOURCE_OFFER.md"), overwrite = true)
+        relinkingGuide.get().asFile.copyTo(output.resolve("FFMPEG_RELINKING.md"), overwrite = true)
     }
 }
 
@@ -78,6 +88,8 @@ androidComponents {
         ) {
             notices.set(rootProject.file("THIRD_PARTY_NOTICES.md"))
             licenses.set(rootProject.file("licenses"))
+            sourceOffer.set(rootProject.file("docs/FFMPEG_SOURCE_OFFER.md"))
+            relinkingGuide.set(rootProject.file("docs/FFMPEG_RELINKING.md"))
         }
         variant.sources.assets?.addGeneratedSourceDirectory(
             noticeAssets,
@@ -90,6 +102,7 @@ dependencies {
     implementation(project(":core:media"))
     implementation(project(":media:android"))
     implementation(project(":media:mcraw"))
+    implementation(project(":media:ffmpeg"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

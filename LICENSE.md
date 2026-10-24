@@ -9,5 +9,5 @@ not permitted.
 
 This notice does **not** replace or reduce the rights and obligations of third-party components.
 Each third-party component remains under its own license; see `THIRD_PARTY_NOTICES.md` and the
-`licenses/` directory. The MotionCam decoder, AndroidX/Media3, and Gradle wrapper are not claimed
-as proprietary CC Player code.
+`licenses/` directory. The MotionCam decoder, FFmpeg, OpenAPV, AndroidX/Media3, and Gradle wrapper
+are not claimed as proprietary CC Player code.

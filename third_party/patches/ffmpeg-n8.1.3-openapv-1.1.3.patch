@@ -1,0 +1,13 @@
+diff --git a/libavcodec/liboapvenc.c b/libavcodec/liboapvenc.c
+--- a/libavcodec/liboapvenc.c
++++ b/libavcodec/liboapvenc.c
+@@ -434,7 +434,8 @@ static av_cold int liboapve_init(AVCodecContext *avctx)
+     }
+ 
+     /* create metadata handler */
+-    apv->mid = oapvm_create(&ret);
++    oapvm_cdesc_t metadata_desc = { 0 };
++    apv->mid = oapvm_create(&metadata_desc, &ret);
+     if (apv->mid == NULL || OAPV_FAILED(ret)) {
+         av_log(avctx, AV_LOG_ERROR, "cannot create OAPV metadata handler\n");
+         return AVERROR_EXTERNAL;

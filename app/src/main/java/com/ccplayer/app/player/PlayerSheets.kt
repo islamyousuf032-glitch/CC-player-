@@ -14,7 +14,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -29,7 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ccplayer.core.media.color.ColorGrade
 import com.ccplayer.core.media.export.ExportProfiles
-import com.ccplayer.core.media.export.VideoCodec
+import com.ccplayer.core.media.export.ExportProfile
 import com.ccplayer.media.android.codec.CodecSupport
 import com.ccplayer.media.android.codec.DeviceCodecCapabilities
 import java.util.Locale
@@ -122,9 +121,9 @@ private fun GradeSlider(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExportSheet(
-    selectedCodec: VideoCodec,
-    isCodecEnabled: (VideoCodec) -> Boolean,
-    onCodecSelected: (VideoCodec) -> Unit,
+    selectedProfileId: String,
+    isProfileEnabled: (ExportProfile) -> Boolean,
+    onProfileSelected: (String) -> Unit,
     onDismiss: () -> Unit,
     onChooseDestination: () -> Unit,
 ) {
@@ -132,48 +131,45 @@ fun ExportSheet(
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp)) {
             Text("Export graded video", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text(
-                "Single clip • source dimensions • device encoder • MP4",
+                "Single clip • exact codec/profile/pixel format • native output re-decode verification",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(16.dp))
             ExportProfiles.current.forEach { profile ->
-                val enabled = isCodecEnabled(profile.codec)
+                val enabled = isProfileEnabled(profile)
+                val specification = buildString {
+                    append(profile.container.extension.uppercase())
+                    profile.pixelFormat?.let { append(" • ").append(it) }
+                    append(" • ").append(profile.audio.displayName)
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     RadioButton(
-                        selected = selectedCodec == profile.codec,
-                        onClick = { onCodecSelected(profile.codec) },
+                        selected = selectedProfileId == profile.id,
+                        onClick = { onProfileSelected(profile.id) },
                         enabled = enabled,
                     )
                     Column(Modifier.weight(1f)) {
-                        Text(profile.codec.displayName, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(profile.title, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
-                            if (enabled) "Available on this device" else "No compatible encoder found",
+                            (if (enabled) {
+                                if (profile.usesNativeBackend) "Native software" else "Device encoder"
+                            } else {
+                                "Unavailable"
+                            }) + " • " + specification,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
             }
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                RadioButton(selected = false, onClick = {}, enabled = false)
-                Column {
-                    Text("ProRes 422 HQ / 4444", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        "Native FFmpeg export stage • not falsely routed through Media3",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
             Spacer(Modifier.height(16.dp))
             Button(
                 onClick = onChooseDestination,
-                enabled = isCodecEnabled(selectedCodec),
+                enabled = isProfileEnabled(ExportProfiles.byId(selectedProfileId)),
                 modifier = Modifier.fillMaxWidth().height(50.dp),
             ) {
                 Text("Choose destination")
@@ -189,7 +185,7 @@ fun ExportSheet(
 fun CodecReportDialog(state: PlayerUiState, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Actual device codecs") },
+        title = { Text("Device + native capabilities") },
         text = {
             Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
                 Text(
@@ -204,6 +200,40 @@ fun CodecReportDialog(state: PlayerUiState, onDismiss: () -> Unit) {
                 } else {
                     DeviceCodecCapabilities.commonVideoMimeTypes.forEach { mime ->
                         CodecSupportRow(report.support(mime))
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                state.ffmpegRuntime?.let { runtime ->
+                    Text("Native FFmpeg ${runtime.version}", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Replaceable LGPL backend • software encoders: " + runtime.encoders.filterValues { it }.keys.sorted().joinToString(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                state.nativeError?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+                state.nativeInfo?.let { info ->
+                    Spacer(Modifier.height(12.dp))
+                    Text("Native source probe • ${info.format}", style = MaterialTheme.typography.titleSmall)
+                    info.primaryVideo?.let { video ->
+                        val fps = if (video.frameRateDen > 0) video.frameRateNum.toDouble() / video.frameRateDen else 0.0
+                        Text(
+                            "${video.codec} ${video.profile} • ${video.pixelFormat} • ${video.bitDepth}-bit\n" +
+                                "${video.width}×${video.height} @ ${String.format(Locale.ROOT, "%.3f", fps)} fps • SAR ${video.sampleAspectRatioNum}:${video.sampleAspectRatioDen}\n" +
+                                "Time base ${video.timeBaseNum}/${video.timeBaseDen} • rotation ${video.rotationDegrees}°\n" +
+                                "Color primaries ${video.colorPrimaries} • transfer ${video.colorTransfer} • matrix ${video.colorSpace} • range ${video.colorRange}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    info.primaryAudio?.let { audio ->
+                        Text(
+                            "Audio ${audio.codec} • ${audio.channels} ch • ${audio.sampleRate} Hz • ${audio.sampleFormat}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }

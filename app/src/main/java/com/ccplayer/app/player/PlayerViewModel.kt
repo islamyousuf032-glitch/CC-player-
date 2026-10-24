@@ -10,7 +10,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
 import com.ccplayer.core.media.color.ColorGrade
-import com.ccplayer.core.media.export.VideoCodec
+import com.ccplayer.core.media.export.ExportAudioCodec
+import com.ccplayer.core.media.export.ExportProfile
+import com.ccplayer.core.media.export.ExportProfiles
+import com.ccplayer.core.media.export.ImplementationStatus
 import com.ccplayer.core.media.format.InputBackend
 import com.ccplayer.core.media.format.InputFormatRouter
 import com.ccplayer.media.android.codec.DeviceCodecCapabilities
@@ -21,6 +24,11 @@ import com.ccplayer.media.android.playback.PlaybackEngine
 import com.ccplayer.media.android.playback.PlaybackSnapshot
 import com.ccplayer.media.mcraw.McrawDecoder
 import com.ccplayer.media.mcraw.McrawInfo
+import com.ccplayer.media.ffmpeg.FFmpegExportEngine
+import com.ccplayer.media.ffmpeg.FFmpegRuntimeInfo
+import com.ccplayer.media.ffmpeg.NativeAudioCodec
+import com.ccplayer.media.ffmpeg.NativeExportRequest
+import com.ccplayer.media.ffmpeg.NativeMediaInfo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -45,7 +53,7 @@ data class ExportUiState(
     val status: ExportStatus = ExportStatus.IDLE,
     val progress: Int? = null,
     val message: String? = null,
-    val selectedCodec: VideoCodec = VideoCodec.H264,
+    val selectedProfileId: String = ExportProfiles.H264.id,
 )
 
 data class PlayerUiState(
@@ -61,6 +69,9 @@ data class PlayerUiState(
     val mcrawPreview: Bitmap? = null,
     val mcrawFrameIndex: Int = 0,
     val codecReport: DeviceCodecReport? = null,
+    val nativeInfo: NativeMediaInfo? = null,
+    val ffmpegRuntime: FFmpegRuntimeInfo? = null,
+    val nativeError: String? = null,
     val showCodecReport: Boolean = false,
     val showGradeSheet: Boolean = false,
     val showExportSheet: Boolean = false,
@@ -71,6 +82,7 @@ data class PlayerUiState(
 class PlayerViewModel(application: Application) : AndroidViewModel(application) {
     private val playbackEngine = Media3PlaybackEngine(application)
     private val exportEngine = Media3ExportEngine(application)
+    private val nativeExportEngine = FFmpegExportEngine(application)
     private val mcrawDecoder = McrawDecoder(application)
     private val contentResolver = application.contentResolver
     private val mutableUiState = MutableStateFlow(PlayerUiState())
@@ -79,6 +91,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     private var currentUri: Uri? = null
     private var mcrawJob: Job? = null
+    private var probeJob: Job? = null
     private var exportJob: Job? = null
     private var exportDestinationUri: Uri? = null
     private var exportTemporaryFile: File? = null
@@ -93,10 +106,15 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             val report = DeviceCodecCapabilities.inspect()
             mutableUiState.update { it.copy(codecReport = report) }
         }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { nativeExportEngine.runtimeInfo() }
+                .onSuccess { info -> mutableUiState.update { it.copy(ffmpegRuntime = info) } }
+                .onFailure { error -> mutableUiState.update { it.copy(nativeError = error.message ?: "Native backend could not load") } }
+        }
     }
 
     fun openMedia(uri: Uri) {
-        if (exportEngine.isRunning || mutableUiState.value.export.status == ExportStatus.COPYING) {
+        if (exportEngine.isRunning || nativeExportEngine.isRunning || mutableUiState.value.export.status == ExportStatus.COPYING) {
             setNotice("Finish or cancel the current export before opening another file")
             return
         }
@@ -105,6 +123,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         mcrawJob?.cancel()
+        probeJob?.cancel()
         playbackEngine.clear()
         currentUri = uri
         val name = queryDisplayName(uri)
@@ -113,9 +132,14 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             mediaName = name,
             mediaKind = MediaKind.NONE,
             codecReport = mutableUiState.value.codecReport,
+            ffmpegRuntime = mutableUiState.value.ffmpegRuntime,
+            nativeError = mutableUiState.value.nativeError,
             isBusy = true,
         )
 
+        if (route.backend != InputBackend.MCRAW_NATIVE && route.backend != InputBackend.VENDOR_SDK) {
+            probeNative(uri)
+        }
         when (route.backend) {
             InputBackend.MCRAW_NATIVE -> openMcraw(uri)
             InputBackend.PLATFORM_FIRST -> {
@@ -130,6 +154,15 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     unsupportedDetail = route.detail,
                 )
             }
+        }
+    }
+
+    private fun probeNative(uri: Uri) {
+        probeJob = viewModelScope.launch(Dispatchers.IO) {
+            runCatching { nativeExportEngine.probe(uri) }
+                .onSuccess { info ->
+                    if (currentUri == uri) mutableUiState.update { it.copy(nativeInfo = info) }
+                }
         }
     }
 
@@ -225,13 +258,17 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     fun showExportSheet(show: Boolean) = mutableUiState.update { it.copy(showExportSheet = show) }
     fun showCodecReport(show: Boolean) = mutableUiState.update { it.copy(showCodecReport = show) }
 
-    fun selectExportCodec(codec: VideoCodec) {
-        mutableUiState.update { it.copy(export = it.export.copy(selectedCodec = codec)) }
+    fun selectExportProfile(profileId: String) {
+        mutableUiState.update { it.copy(export = it.export.copy(selectedProfileId = profileId)) }
     }
 
-    fun isExportCodecEnabled(codec: VideoCodec): Boolean {
-        val report = mutableUiState.value.codecReport ?: return codec == VideoCodec.H264
-        val mime = codec.mimeType ?: return false
+    fun isExportProfileEnabled(profile: ExportProfile): Boolean {
+        if (profile.status != ImplementationStatus.IMPLEMENTED) return false
+        if (profile.usesNativeBackend) {
+            return mutableUiState.value.ffmpegRuntime?.encoders?.get(profile.encoderName) == true
+        }
+        val report = mutableUiState.value.codecReport ?: return profile == ExportProfiles.H264
+        val mime = profile.codec.mimeType ?: return false
         return report.support(mime).canEncode
     }
 
@@ -241,18 +278,19 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             ?.sanitizeForFileName()
             ?.take(48)
             ?: "CC-Player"
-        val codec = mutableUiState.value.export.selectedCodec.name.lowercase()
-        return "$base-$codec-graded.mp4"
+        val profile = ExportProfiles.byId(mutableUiState.value.export.selectedProfileId)
+        return "$base-${profile.id}.${profile.container.extension}"
     }
 
     fun startExport(destinationUri: Uri) {
         val input = currentUri ?: return
         val state = mutableUiState.value
-        if (state.mediaKind != MediaKind.VIDEO || exportEngine.isRunning) return
-        val codec = state.export.selectedCodec
-        if (!isExportCodecEnabled(codec)) {
+        if (state.mediaKind != MediaKind.VIDEO || exportEngine.isRunning || nativeExportEngine.isRunning ||
+            state.export.status == ExportStatus.RUNNING || state.export.status == ExportStatus.COPYING) return
+        val profile = ExportProfiles.byId(state.export.selectedProfileId)
+        if (!isExportProfileEnabled(profile)) {
             mutableUiState.update {
-                it.copy(export = it.export.copy(status = ExportStatus.ERROR, message = "No ${codec.displayName} encoder was found on this device"))
+                it.copy(export = it.export.copy(status = ExportStatus.ERROR, message = "${profile.title} encoder is unavailable in this runtime"))
             }
             return
         }
@@ -261,7 +299,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         exportDestinationUri = destinationUri
         val temporary = File(
             getApplication<Application>().cacheDir,
-            "exports/${UUID.randomUUID()}.mp4",
+            "exports/${UUID.randomUUID()}.${profile.container.extension}",
         )
         exportTemporaryFile = temporary
         mutableUiState.update {
@@ -271,10 +309,14 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             )
         }
 
+        if (profile.usesNativeBackend) {
+            startNativeExport(input, temporary, profile, state.grade)
+            return
+        }
         exportEngine.start(
             input = input,
             destination = temporary,
-            codec = codec,
+            codec = profile.codec,
             grade = state.grade,
             listener = object : Media3ExportEngine.Listener {
                 override fun onCompleted(outputFile: File) {
@@ -295,6 +337,45 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         startExportProgressUpdates()
     }
 
+    private fun startNativeExport(input: Uri, temporary: File, profile: ExportProfile, grade: ColorGrade) {
+        exportJob?.cancel()
+        exportJob = viewModelScope.launch {
+            try {
+                val request = NativeExportRequest(
+                    input = input,
+                    destination = temporary,
+                    codec = requireNotNull(profile.encoderName),
+                    profile = profile.encoderProfile.orEmpty(),
+                    pixelFormat = requireNotNull(profile.pixelFormat),
+                    audioCodec = profile.audio.toNativeAudioCodec(),
+                    videoQuality = profile.defaultQuality,
+                    grade = grade,
+                )
+                val result = withContext(Dispatchers.IO) {
+                    nativeExportEngine.export(request) { percent, _ ->
+                        mutableUiState.update { it.copy(export = it.export.copy(progress = percent)) }
+                    }
+                }
+                if (result.cancelled) {
+                    mutableUiState.update { it.copy(export = ExportUiState(selectedProfileId = it.export.selectedProfileId)) }
+                } else {
+                    mutableUiState.update { it.copy(export = it.export.copy(status = ExportStatus.COPYING)) }
+                    val summary = "Verified ${result.encodedFrames} decoded frames • ${result.codec} ${result.profile} • " +
+                        "${result.pixelFormat} (${result.bitDepth}-bit) • ${result.width}×${result.height}"
+                    copyExportToDestination(temporary, summary)
+                }
+            } catch (cancelled: CancellationException) {
+                temporary.delete()
+                throw cancelled
+            } catch (error: Throwable) {
+                temporary.delete()
+                mutableUiState.update {
+                    it.copy(export = it.export.copy(status = ExportStatus.ERROR, message = error.message ?: "Native export failed"))
+                }
+            }
+        }
+    }
+
     private fun startExportProgressUpdates() {
         exportJob?.cancel()
         exportJob = viewModelScope.launch {
@@ -306,7 +387,10 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun copyExportToDestination(outputFile: File) {
+    private fun copyExportToDestination(
+        outputFile: File,
+        successMessage: String = "Export saved with the same color effect used in preview",
+    ) {
         val destination = exportDestinationUri
         if (destination == null) {
             outputFile.delete()
@@ -338,7 +422,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                         export = it.export.copy(
                             status = ExportStatus.SUCCESS,
                             progress = 100,
-                            message = "Export saved with the same color effect used in preview",
+                            message = successMessage,
                         ),
                     )
                 }
@@ -360,6 +444,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun cancelExport() {
         exportEngine.cancel()
+        nativeExportEngine.cancel()
         exportJob?.cancel()
         exportTemporaryFile?.delete()
         exportTemporaryFile = null
@@ -367,12 +452,12 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             runCatching { DocumentsContract.deleteDocument(contentResolver, uri) }
         }
         exportDestinationUri = null
-        mutableUiState.update { it.copy(export = ExportUiState(selectedCodec = it.export.selectedCodec)) }
+        mutableUiState.update { it.copy(export = ExportUiState(selectedProfileId = it.export.selectedProfileId)) }
     }
 
     fun dismissExportResult() {
         mutableUiState.update {
-            it.copy(export = ExportUiState(selectedCodec = it.export.selectedCodec))
+            it.copy(export = ExportUiState(selectedProfileId = it.export.selectedProfileId))
         }
     }
 
@@ -392,12 +477,23 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     override fun onCleared() {
         mcrawJob?.cancel()
+        probeJob?.cancel()
         exportJob?.cancel()
         exportEngine.cancel()
+        nativeExportEngine.cancel()
         exportTemporaryFile?.delete()
         playbackEngine.close()
         super.onCleared()
     }
+}
+
+private fun ExportAudioCodec.toNativeAudioCodec(): NativeAudioCodec = when (this) {
+    ExportAudioCodec.AAC -> NativeAudioCodec.AAC
+    ExportAudioCodec.PCM16 -> NativeAudioCodec.PCM_S16LE
+    ExportAudioCodec.PCM24 -> NativeAudioCodec.PCM_S24LE
+    ExportAudioCodec.FLAC -> NativeAudioCodec.FLAC
+    ExportAudioCodec.COPY -> NativeAudioCodec.COPY
+    ExportAudioCodec.NONE -> NativeAudioCodec.NONE
 }
 
 private fun String.sanitizeForFileName(): String =
