@@ -2,7 +2,7 @@ plugins {
     alias(libs.plugins.android.library)
 }
 
-import com.ccplayer.build.BuildFfmpegTask
+import com.ccplayer.buildlogic.BuildFfmpegTask
 import java.util.Properties
 
 val localSdk = sequenceOf(System.getenv("ANDROID_HOME"), System.getenv("ANDROID_SDK_ROOT"))
