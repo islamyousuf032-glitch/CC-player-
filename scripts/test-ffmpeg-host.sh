@@ -109,6 +109,7 @@ run_log "${WORK}/host-test-compile.log" g++ -std=c++17 -g -O1 -fsanitize=address
   "${ROOT_DIR}/media/ffmpeg/src/main/cpp/native_media.cpp" \
   "${ROOT_DIR}/media/ffmpeg/src/main/cpp/color_pipeline.cpp" \
   "${ROOT_DIR}/media/ffmpeg/src/main/cpp/audio_pipeline.cpp" \
+  "${ROOT_DIR}/media/ffmpeg/src/main/cpp/playback.cpp" \
   "${ROOT_DIR}/media/ffmpeg/src/main/cpp/transcode.cpp" \
   -L"${PREFIX}/lib" -lavformat -lavcodec -lswresample -lswscale -lavutil -loapv -lz -lpthread -lm \
   -o "${BINARY}"

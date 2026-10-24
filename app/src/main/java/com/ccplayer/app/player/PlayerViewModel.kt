@@ -19,7 +19,6 @@ import com.ccplayer.core.media.format.InputFormatRouter
 import com.ccplayer.media.android.codec.DeviceCodecCapabilities
 import com.ccplayer.media.android.codec.DeviceCodecReport
 import com.ccplayer.media.android.export.Media3ExportEngine
-import com.ccplayer.media.android.playback.Media3PlaybackEngine
 import com.ccplayer.media.android.playback.PlaybackEngine
 import com.ccplayer.media.android.playback.PlaybackSnapshot
 import com.ccplayer.media.mcraw.McrawDecoder
@@ -60,6 +59,7 @@ data class PlayerUiState(
     val mediaName: String? = null,
     val mediaKind: MediaKind = MediaKind.NONE,
     val playback: PlaybackSnapshot = PlaybackSnapshot(),
+    val playbackBackend: PlaybackBackend = PlaybackBackend.NONE,
     val grade: ColorGrade = ColorGrade.IDENTITY,
     val resizeMode: VideoResizeMode = VideoResizeMode.FIT,
     val isBusy: Boolean = false,
@@ -80,7 +80,7 @@ data class PlayerUiState(
 
 @UnstableApi
 class PlayerViewModel(application: Application) : AndroidViewModel(application) {
-    private val playbackEngine = Media3PlaybackEngine(application)
+    private val playbackEngine = RoutingPlaybackEngine(application)
     private val exportEngine = Media3ExportEngine(application)
     private val nativeExportEngine = FFmpegExportEngine(application)
     private val mcrawDecoder = McrawDecoder(application)
@@ -100,6 +100,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             playbackEngine.state.collect { playback ->
                 mutableUiState.update { it.copy(playback = playback) }
+            }
+        }
+        viewModelScope.launch {
+            playbackEngine.backend.collect { backend ->
+                mutableUiState.update { it.copy(playbackBackend = backend) }
             }
         }
         viewModelScope.launch(Dispatchers.IO) {
@@ -145,6 +150,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             InputBackend.PLATFORM_FIRST -> {
                 playbackEngine.setColorGrade(ColorGrade.IDENTITY)
                 playbackEngine.open(uri)
+                mutableUiState.update { it.copy(mediaKind = MediaKind.VIDEO, isBusy = false) }
+            }
+            InputBackend.FFMPEG_NATIVE -> {
+                playbackEngine.setColorGrade(ColorGrade.IDENTITY)
+                playbackEngine.openNative(uri)
                 mutableUiState.update { it.copy(mediaKind = MediaKind.VIDEO, isBusy = false) }
             }
             else -> mutableUiState.update {

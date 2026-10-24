@@ -31,6 +31,15 @@ class InputFormatRouteTest {
     }
 
     @Test
+    fun nativeProfessionalContainersUseTheClockedFfmpegRoute() {
+        for (name in listOf("camera.apv", "master.mxf", "archive.mts")) {
+            val route = InputFormatRouter.route(name)
+            assertEquals(InputBackend.FFMPEG_NATIVE, route.backend)
+            assertTrue(route.currentlyPlayable)
+        }
+    }
+
+    @Test
     fun unknownContainerIsProbedRatherThanRejectedByExtension() {
         val route = InputFormatRouter.route("clip-without-extension")
         assertEquals(InputBackend.PLATFORM_FIRST, route.backend)

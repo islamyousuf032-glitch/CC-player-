@@ -60,8 +60,8 @@ object InputFormatRouter {
             extension in ffmpegContainers -> InputFormatRoute(
                 extension,
                 InputBackend.FFMPEG_NATIVE,
-                currentlyPlayable = false,
-                detail = "This route requires the planned native demux/decoder backend.",
+                currentlyPlayable = true,
+                detail = "Use the clocked native FFmpeg demux/decoder with Surface video and AudioTrack PCM output.",
             )
             else -> InputFormatRoute(
                 extension,

@@ -122,7 +122,8 @@ ColorPipeline::ColorPipeline(
     AVColorSpace matrix,
     AVColorRange range,
     const std::array<float, 16>& colorMatrix,
-    bool isIdentity
+    bool isIdentity,
+    AVColorTransferCharacteristic targetTransfer
 ) : outputWidth(width),
     outputHeight(height),
     outputFormat(format),
@@ -130,7 +131,8 @@ ColorPipeline::ColorPipeline(
     outputRange(range),
     grade(colorMatrix),
     identity(isIdentity),
-    outputAlpha(hasAlpha(format)) {}
+    outputAlpha(hasAlpha(format)),
+    outputTransfer(targetTransfer) {}
 
 FramePtr ColorPipeline::convert(
     const AVFrame* source,
@@ -180,18 +182,20 @@ FramePtr ColorPipeline::convert(
     return output;
 }
 
-void ColorPipeline::applyGrade(AVFrame* frame, AVColorTransferCharacteristic transfer) {
-    if (lutTransfer != transfer) {
-        transferLut.transfer = transfer;
-        transferLut.encode.resize(kEncodeLutSize);
+void ColorPipeline::applyGrade(AVFrame* frame, AVColorTransferCharacteristic inputTransfer, AVColorTransferCharacteristic targetTransfer) {
+    if (decodeLut.transfer != inputTransfer) {
+        decodeLut.transfer = inputTransfer;
         for (int index = 0; index < 65536; ++index) {
-            transferLut.decode[index] = decodeTransfer(index / 65535.0f, transfer);
+            decodeLut.values[index] = decodeTransfer(index / 65535.0f, inputTransfer);
         }
+    }
+    if (encodeLut.transfer != targetTransfer) {
+        encodeLut.transfer = targetTransfer;
+        encodeLut.values.resize(kEncodeLutSize);
         for (int index = 0; index < kEncodeLutSize; ++index) {
-            const float encoded = encodeTransfer(index / kEncodeLutMax, transfer);
-            transferLut.encode[index] = static_cast<uint16_t>(std::clamp(std::lround(encoded * 65535.0f), 0L, 65535L));
+            const float encoded = encodeTransfer(index / kEncodeLutMax, targetTransfer);
+            encodeLut.values[index] = static_cast<uint16_t>(std::clamp(std::lround(encoded * 65535.0f), 0L, 65535L));
         }
-        lutTransfer = transfer;
     }
 
     for (int y = 0; y < frame->height; ++y) {
@@ -199,9 +203,9 @@ void ColorPipeline::applyGrade(AVFrame* frame, AVColorTransferCharacteristic tra
         auto* blue = reinterpret_cast<uint16_t*>(frame->data[1] + y * frame->linesize[1]);
         auto* red = reinterpret_cast<uint16_t*>(frame->data[2] + y * frame->linesize[2]);
         for (int x = 0; x < frame->width; ++x) {
-            const float r = transferLut.decode[red[x]];
-            const float g = transferLut.decode[green[x]];
-            const float b = transferLut.decode[blue[x]];
+            const float r = decodeLut.values[red[x]];
+            const float g = decodeLut.values[green[x]];
+            const float b = decodeLut.values[blue[x]];
             const float linear[3] = {
                 grade[0] * r + grade[4] * g + grade[8] * b + grade[12],
                 grade[1] * r + grade[5] * g + grade[9] * b + grade[13],
@@ -209,7 +213,7 @@ void ColorPipeline::applyGrade(AVFrame* frame, AVColorTransferCharacteristic tra
             };
             const auto encode = [&](float value) {
                 const auto index = static_cast<int>(std::lround(std::clamp(value, 0.0f, 1.0f) * kEncodeLutMax));
-                return transferLut.encode[index];
+                return encodeLut.values[index];
             };
             red[x] = encode(linear[0]);
             green[x] = encode(linear[1]);
@@ -230,9 +234,10 @@ FramePtr ColorPipeline::process(const AVFrame* source, const LogCapture& logs) {
 
     const auto workingFormat = outputAlpha ? AV_PIX_FMT_GBRAP16 : AV_PIX_FMT_GBRP16;
     auto working = convert(source, outputWidth, outputHeight, workingFormat, AVCOL_SPC_RGB, AVCOL_RANGE_JPEG, toWorking, logs);
-    const auto transfer = source->color_trc == AVCOL_TRC_UNSPECIFIED ? AVCOL_TRC_BT709 : source->color_trc;
-    applyGrade(working.get(), transfer);
-    working->color_trc = transfer;
+    const auto inputTransfer = source->color_trc == AVCOL_TRC_UNSPECIFIED ? AVCOL_TRC_BT709 : source->color_trc;
+    const auto targetTransfer = outputTransfer == AVCOL_TRC_UNSPECIFIED ? inputTransfer : outputTransfer;
+    applyGrade(working.get(), inputTransfer, targetTransfer);
+    working->color_trc = targetTransfer;
     if (workingFormat == outputFormat) {
         working->color_range = AVCOL_RANGE_JPEG;
         working->colorspace = AVCOL_SPC_RGB;

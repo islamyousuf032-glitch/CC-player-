@@ -251,10 +251,10 @@ private fun FoundationCard() {
     ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("WORKING FOUNDATION", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-            CapabilityRow("Media3 playback", "Device H.264, HEVC, VP9, AV1 and APV support is detected at runtime")
+            CapabilityRow("Hybrid native playback", "Media3 hardware decoding with clocked FFmpeg fallback for ProRes, APV, DNxHR and broad containers")
             CapabilityRow("Native MCRAW", "Container metadata plus draft RAW frame preview and scrubbing")
-            CapabilityRow("Color + export", "Shared linear-light effect with actual H.264/HEVC MP4 export; APV when the device encodes it")
-            CapabilityRow("Next backend", "FFmpeg/ProRes, real-time MCRAW and professional color management are explicitly staged")
+            CapabilityRow("Color + professional export", "Shared linear-light grade with verified ProRes, DNxHR, FFV1, APV and hardware MP4 export")
+            CapabilityRow("Exact native output", "Encoder profile, pixel format, bit depth, audio path and decoded frame count are verified")
         }
     }
 }
@@ -280,7 +280,14 @@ private fun CapabilityRow(title: String, detail: String) {
 @Composable
 private fun VideoWorkspace(state: PlayerUiState, viewModel: PlayerViewModel, onOpen: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
-        MediaHeader(state.mediaName.orEmpty(), "MEDIA3 • HARDWARE FIRST")
+        MediaHeader(
+            state.mediaName.orEmpty(),
+            when (state.playbackBackend) {
+                PlaybackBackend.FFMPEG -> "FFMPEG • NATIVE CLOCK + LINEAR COLOR"
+                PlaybackBackend.MEDIA3 -> "MEDIA3 • HARDWARE FIRST"
+                PlaybackBackend.NONE -> "OPENING MEDIA",
+            },
+        )
         Box(
             modifier = Modifier.fillMaxWidth().weight(1f).background(Color.Black),
             contentAlignment = Alignment.Center,

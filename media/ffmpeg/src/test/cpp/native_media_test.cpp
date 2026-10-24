@@ -1,11 +1,18 @@
 #include "ffmpeg_raii.h"
 #include "native_media.h"
+#include "playback.h"
 
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <vector>
 
 using namespace ccplayer::ffmpeg;
 using namespace ccplayer::ffmpeg::detail;
@@ -122,6 +129,100 @@ ExportRequest request(const std::string& input, const std::string& output) {
     value.outputPath = output;
     value.threadCount = 2;
     return value;
+}
+
+class MemoryPlaybackSink final : public PlaybackSink {
+public:
+    void renderVideo(const AVFrame* frame, int64_t presentationUs, const std::array<float, 16>& grade) override {
+        require(frame && frame->width == kWidth && frame->height == kHeight, "playback video dimensions");
+        require(std::isfinite(grade[0]), "playback grade matrix");
+        std::lock_guard<std::mutex> lock(mutex);
+        if (!videoDiscontinuity && !videoPositions.empty()) require(presentationUs >= videoPositions.back(), "monotonic video presentation");
+        videoDiscontinuity = false;
+        videoPositions.push_back(presentationUs);
+        changed.notify_all();
+    }
+
+    void writeAudio(const int16_t* samples, size_t sampleFrames, int sampleRate, int channels, int64_t presentationUs, uint64_t) override {
+        require(samples && sampleFrames > 0 && sampleRate == kSampleRate && channels == 2, "playback PCM contract");
+        std::lock_guard<std::mutex> lock(mutex);
+        if (!audioDiscontinuity && !audioPositions.empty()) require(presentationUs >= audioPositions.back(), "monotonic audio presentation");
+        audioDiscontinuity = false;
+        audioPositions.push_back(presentationUs);
+        audioSampleFrames += sampleFrames;
+        changed.notify_all();
+    }
+
+    int64_t audioPositionUs() override { return -1; }
+    void flushAudio() override {
+        std::lock_guard<std::mutex> lock(mutex);
+        ++audioFlushes;
+        videoDiscontinuity = true;
+        audioDiscontinuity = true;
+    }
+    void setAudioSpeed(float speed) override { audioSpeed.store(speed); }
+
+    size_t videoCount() {
+        std::lock_guard<std::mutex> lock(mutex);
+        return videoPositions.size();
+    }
+
+    bool waitForVideoCount(size_t target, std::chrono::milliseconds timeout) {
+        std::unique_lock<std::mutex> lock(mutex);
+        return changed.wait_for(lock, timeout, [&] { return videoPositions.size() >= target; });
+    }
+
+    std::mutex mutex;
+    std::condition_variable changed;
+    std::vector<int64_t> videoPositions;
+    std::vector<int64_t> audioPositions;
+    size_t audioSampleFrames = 0;
+    bool videoDiscontinuity = true;
+    bool audioDiscontinuity = true;
+    std::atomic<int> audioFlushes{0};
+    std::atomic<float> audioSpeed{1};
+};
+
+void verifyPlayback(const std::string& path) {
+    auto sink = std::make_shared<MemoryPlaybackSink>();
+    NativePlayer player;
+    std::atomic<bool> ended{false};
+    std::atomic<int> width{0};
+    std::atomic<int> height{0};
+    std::string error;
+    PlaybackListener listener;
+    listener.onState = [&](bool, bool isEnded) { ended.store(isEnded); };
+    listener.onVideoSize = [&](int w, int h, float) { width.store(w); height.store(h); };
+    listener.onError = [&](const std::string& message) { error = message; std::cerr << "Playback error: " << message << '\n'; };
+    player.open(path, sink, std::move(listener));
+    require(width.load() == kWidth && height.load() == kHeight, "playback open dimensions");
+    require(std::abs(player.durationUs() - 500000) < 50000, "playback duration");
+    require(sink->waitForVideoCount(1, std::chrono::seconds(2)), "paused exact first-frame preview");
+    require(player.positionUs() < 50000, "paused preview position");
+
+    player.play();
+    for (int attempt = 0; attempt < 60 && !ended.load(); ++attempt) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    require(ended.load(), "clocked playback reached EOF");
+    require(error.empty(), "playback worker error: " + error);
+    require(sink->videoCount() >= static_cast<size_t>(kFrames), "all playback video frames decoded");
+    {
+        std::lock_guard<std::mutex> lock(sink->mutex);
+        require(sink->audioSampleFrames >= static_cast<size_t>(kSampleRate / 2), "all playback audio samples decoded");
+    }
+
+    const auto beforeGrade = sink->videoCount();
+    player.seekTo(0);
+    require(sink->waitForVideoCount(beforeGrade + 1, std::chrono::seconds(2)), "seek while paused renders target frame");
+    std::array<float, 16> grade = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+    grade[0] = 1.1f;
+    player.setGrade(grade);
+    require(sink->waitForVideoCount(beforeGrade + 2, std::chrono::seconds(2)), "paused grade refreshes current frame");
+    player.setSpeed(2.0f);
+    require(std::abs(sink->audioSpeed.load() - 2.0f) < 0.001f, "audio speed propagated to sink");
+    require(sink->audioFlushes.load() > 0, "seek flushed audio");
+    player.close();
+    require(error.empty(), "playback close error: " + error);
+    std::cout << "Clocked native playback: " << sink->videoCount() << " rendered frames, PCM and exact paused seek verified\n";
 }
 
 void run() {
@@ -259,6 +360,8 @@ void run() {
     ffv1Alpha.audioCodec = "NONE";
     const auto ffv1AlphaResult = transcode(ffv1Alpha, {}, {});
     require(ffv1AlphaResult.encodedFrames == kFrames && ffv1AlphaResult.bitDepth == 16, "FFV1 alpha 16-bit export");
+
+    verifyPlayback(prores.outputPath);
 
     auto cancelled = request(input, directory + "/cancelled.mov");
     cancelled.codec = "prores_ks";

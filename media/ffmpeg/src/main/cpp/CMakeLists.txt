@@ -12,8 +12,12 @@ add_library(ccplayer_ffmpeg SHARED
     native_media.cpp
     color_pipeline.cpp
     audio_pipeline.cpp
+    playback.cpp
     transcode.cpp
 )
+if(ANDROID)
+    target_sources(ccplayer_ffmpeg PRIVATE FFmpegPlayerJni.cpp playback_android.cpp)
+endif()
 target_compile_features(ccplayer_ffmpeg PRIVATE cxx_std_17)
 target_compile_options(ccplayer_ffmpeg PRIVATE -Wall -Wextra -Wpedantic -Werror=return-type)
 target_include_directories(ccplayer_ffmpeg PRIVATE
