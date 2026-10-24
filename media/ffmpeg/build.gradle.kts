@@ -1,3 +1,7 @@
+plugins {
+    alias(libs.plugins.android.library)
+}
+
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.process.ExecOperations
 import java.util.Properties
