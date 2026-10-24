@@ -1,57 +1,46 @@
 # Format and codec support contract
 
-Status date: **23 October 2026**. “Implemented” means a code path exists in this repository; it does
-not mean every phone supports every profile, resolution or frame rate. Runtime probing and device
-tests remain mandatory.
+Status date: **24 October 2026**. “Implemented” means a real code path exists; it does not mean every
+phone sustains every resolution/frame rate. Host ASan vectors, Android compilation and physical-device
+performance are separate gates.
 
 ## Input / playback matrix
 
-| Media family | Current foundation | Target route | Important limitation |
-| --- | --- | --- | --- |
-| H.264 / AVC | **Implemented through Media3** | MediaCodec first | Profile/level and resolution still depend on device. |
-| H.265 / HEVC, including HDR where supported | **Implemented through Media3** | MediaCodec first; FFmpeg fallback for software-decodable variants | HDR display and 10-bit decoder support are separate capabilities. |
-| VP8 / VP9 / AV1 | **Implemented through Media3** | MediaCodec first; native fallback where built | AV1 hardware is not universal; high-bit-depth software playback may be slow. |
-| APV in MP4 | **Media3 path implemented** | Android 16+ hardware; OpenAPV/FFmpeg fallback | Current Media3 path still needs an actual device decoder. Raw `.apv` elementary streams need native demux handling. |
-| ProRes 422 Proxy/LT/422/HQ | Honest unsupported error in this build | FFmpeg software decode -> common frame graph | MOV container alone is not enough to identify ProRes. |
-| ProRes 4444 / 4444 XQ, alpha | Honest unsupported error in this build | FFmpeg decode -> alpha-capable GPU frame | Alpha must survive preview, compositing and export; ordinary H.264 export drops it. |
-| ProRes RAW | Not connected | FFmpeg decoder evaluation -> camera-specific RAW development | ProRes RAW is not ordinary ProRes. Decoding does not imply a raw encoder or correct color without metadata. |
-| MotionCam **MCRAW** | **Native probe + draft frame preview/scrubbing implemented; no real-time playback claim** | MotionCam decoder -> high-quality demosaic -> color-managed clocked renderer | Audio, gyro, sensor metadata and frame timestamps must remain synchronized. |
-| CinemaDNG / DNG sequence | Not connected | Sequence reader + DNG decoder + RAW development | Requires frame ordering, frame rate, missing-frame policy, orientation and camera color metadata. |
-| EXR / DPX / TIFF / PNG sequence | Not connected | Sequence source -> half/float or integer frame conversion | A single image is not automatically a sequence. EXR can be scene-linear and multi-layer. |
-| DNxHD / DNxHR | Not connected | FFmpeg decode -> common frame graph | Profile, bit depth and alpha need test vectors. |
-| CineForm | Not connected | FFmpeg/native decoder evaluation | Do not assume every variant is supported because the brand name is recognized. |
-| FFV1 / lossless intermediates | Not connected | FFmpeg decode | High throughput storage and CPU are often the bottleneck. |
-| H.266 / VVC and emerging codecs | Runtime-dependent | MediaCodec where present; current FFmpeg capability probe | No universal claim. |
-| MPEG-2, MPEG-4 Part 2, H.263, older AVI/VOB/MTS families | Platform attempt for recognized containers; native route not connected yet | FFmpeg demux/decode + deinterlace + pulldown/field handling | Playback must handle interlacing and timecodes, not only decode frames. |
-| BRAW, RED R3D, Canon CRM/RAW, ARRIRAW and other camera RAW | Explicit vendor-SDK route; not connected | Vendor SDK or legally compatible decoder, then camera-specific development | No open-source “FFmpeg supports everything” assumption. SDK redistribution and phone ABI support are release blockers. |
-| Network HLS/DASH/RTSP | Not a product goal in this foundation | Media3 can be added separately | Local professional editing and streaming have different buffering/export requirements. |
-| DRM-protected media | Not promised | MediaDrm only if a later product requirement justifies it | Offline/export rights and protected surfaces are separate from decoding. |
+| Media family | Current implementation | Important limitation |
+| --- | --- | --- |
+| H.264 / HEVC / VP8 / VP9 / AV1 | **Media3/MediaCodec first, clocked FFmpeg fallback** | Profile/level/HDR and sustained performance remain device-dependent. |
+| APV in MP4 and raw `.apv` | **FFmpeg native decode route plus Media3 where supported** | Android hardware APV is not universal; software playback may be CPU-bound. |
+| ProRes 422 Proxy/LT/422/HQ | **Native FFmpeg playback and export implemented; host vectors pass** | MOV is probed rather than assumed to be ProRes; high-resolution CPU throughput needs device QA. |
+| ProRes 4444 / 4444 XQ, alpha | **Native decode/export implemented, including 10-bit encoder input / 12-bit decoded output verification** | Native preview preserves pixel alpha; ordinary H.264 export does not. |
+| ProRes RAW | Decoder name is probed, but no camera-RAW development claim | ProRes RAW is not ordinary ProRes and needs camera-specific processing. |
+| MotionCam **MCRAW** | **Persistent native decoder, exact frame timestamps, clocked draft playback, frame seek and chunked PCM audio** | Current 2×2 CPU demosaic/white balance is draft quality, not final camera color/GPU demosaic. |
+| EXR / DPX / TIFF / PNG / JPEG sequence | **SAF folder reader, natural numeric sorting, explicit gap report, rational-fps playback and FFmpeg frame decode** | Multi-layer EXR interpretation, audio sidecars and sequence export are not complete. |
+| CinemaDNG / DNG sequence | Enters the same explicit sequence route when FFmpeg can decode the frame | Not every DNG/CinemaDNG variant is a supported developed RAW image. |
+| DNxHD / DNxHR / CineForm / FFV1 | **Native FFmpeg decode route; DNxHR and FFV1 export vectors also pass** | Variant/interlace/alpha coverage and storage/CPU throughput need broader tests. |
+| MPEG-2, MPEG-4 Part 2, H.263, AVI/VOB/MTS | **Native demux/decode route for enabled variants** | Deinterlace, pulldown and timecode presentation still need dedicated work. |
+| BRAW, R3D, CRM, ARRIRAW | Explicit vendor-SDK route; not connected | Vendor licensing, metadata and Android ABI support remain blockers. |
+| Network HLS/DASH/RTSP and DRM | Not a current product claim | Local professional media is the current scope. |
 
 ## Export matrix
 
-| Output | Current foundation | Target route / notes |
+| Output | Current implementation | Verification / limitation |
 | --- | --- | --- |
-| H.264 + AAC in MP4 | **Implemented with actual Transformer export** | Device encoder; shared preview color effect; source dimensions; no background-export claim yet. |
-| HEVC + AAC in MP4 | **Implemented when a device encoder is reported** | 10-bit/HDR settings still need explicit profile/color validation. |
-| APV + audio in MP4 | **Media3 path implemented when a device encoder is reported** | Android 16+/device test gate. Software OpenAPV path planned for broader coverage. |
-| ProRes 422 Proxy/LT/422/HQ | Planned | FFmpeg LGPL-safe encoder investigation -> MOV muxer. Preserve requested profile; never substitute H.264. |
-| ProRes 4444 / 4444 XQ | Planned | Requires alpha-capable frames, correct chroma/bit depth and MOV metadata. |
-| APV software encode | Planned | OpenAPV directly or FFmpeg `liboapv`, with profile/chroma/bit-depth validation. |
-| DNxHR | Planned | FFmpeg/native encode; MOV first, MXF only after explicit mux/timecode work. |
-| FFV1 in Matroska | Planned | Useful lossless intermediate/archive route, not a universally playable delivery format. |
-| CinemaDNG sequence | Planned after MCRAW RAW development | Must preserve source RAW or clearly define redeveloped RAW; audio/timecode sidecars need a contract. |
-| EXR / PNG / TIFF sequence | Planned | Color space, bit depth, alpha, compression, numbering and storage space must be explicit. |
-| MCRAW | **No general encoder claimed** | Upstream decoder is not a writer. Consider bit-preserving trims only if the container writer and metadata are implemented and tested. Otherwise export DNG/EXR/ProRes. |
-| ProRes RAW / BRAW / R3D | **No export claim** | A decoder does not grant a raw writer. Vendor SDKs and camera metadata are required. |
-| “Same as input” | Not a universal button | Only valid through a compatibility-checked transmux path. Edited/graded frames require re-encoding. |
+| H.264 / HEVC + AAC in MP4 | **Actual Media3 Transformer export when the device encoder is available** | Device profile/HDR capability still needs explicit validation. |
+| APV 422-10 hardware | **Media3 path when reported by the device** | Android/device gate remains. |
+| ProRes 422 Proxy/LT/422/HQ | **Native `prores_ks` MOV export** | Host output is re-probed and fully decoded; profile, 10-bit format, audio and frame count checked. |
+| ProRes 4444 / 4444 XQ | **Native MOV export with and without alpha** | 10-bit request can legitimately decode as 12-bit; this exact promotion is checked, not hidden. |
+| APV software | **OpenAPV through FFmpeg: 400-10, 422-10/12, 444-10/12, 4444-10/12** | Host variants verify profile ID, pixel format, bit depth, frames and decode; no audio in raw APV elementary output. |
+| DNxHR LB/SQ/HQ/HQX/444 | **Native MOV export** | Exact profile and 8/10-bit pixel format are verified. |
+| FFV1 / FFV1-alpha in Matroska | **Native export, including 16-bit and alpha variants** | FLAC/PCM options depend on the selected profile; lossless throughput is storage/CPU intensive. |
+| Foreground export operation | **Foreground media-processing service, cancel, temporary-file cleanup, free-space preflight, progress/ETA and SAF copy** | A durable multi-job render queue/resume is not yet implemented. |
+| EXR / PNG / TIFF / CinemaDNG sequence | Not connected as an export sink | Requires numbering, compression, color/alpha, sidecar and multi-file SAF verification. |
+| MCRAW / ProRes RAW / BRAW / R3D | **No general RAW writer claimed** | Decode access does not imply a legal/functional RAW encoder. |
+| “Same as input” | Only codec copy for the explicit compatible native audio case; no universal graded transmux button | Graded/edited frames require re-encoding. |
 
 ## Capability rules
 
-1. Probe the actual bitstream and device; never route only by file extension.
-2. Display the selected backend, codec, container, chroma, bit depth, color space and fallback.
-3. A professional export request fails loudly rather than silently changing codec, dimensions, HDR
-   mode or alpha.
-4. A software decoder is allowed to degrade to a lower-resolution **preview proxy**. Final export
-   must still use the original source unless the user explicitly chooses otherwise.
-5. Unsupported formats get an actionable message (install codec capability, use proxy, or choose a
-   supported delivery format), not a crash or a false success.
+1. Probe the actual bitstream and device; never infer a codec from a container extension.
+2. Show the active backend and detailed stream/color/time-base information.
+3. Never silently substitute codec, profile, dimensions, bit depth, HDR mode or alpha in professional export.
+4. A lower-resolution preview must remain an explicit quality choice; final export uses original source frames.
+5. Unsupported variants fail with an actionable error rather than a crash, black frame or false success.

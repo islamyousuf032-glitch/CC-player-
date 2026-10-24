@@ -30,13 +30,13 @@ is expanded through the support matrix rather than marked done by adding a depen
 **Gate:** CI is green, followed by basic playback/export and MCRAW smoke tests on physical devices.
 The MCRAW draft preview is not an acceptance claim for real-time playback.
 
-## Phase 2 — Playback hardening and native compatibility backend (P0, next)
+## Phase 2 — Playback hardening and native compatibility backend (P0, in progress)
 
 ### 2A. Platform playback quality
 
-- [ ] Persist recent files, resume position and user playback preferences.
+- [x] Persist recent files, resume position and user playback preferences.
 - [ ] Embedded/external subtitle and audio-track selection UI.
-- [ ] Track/bitstream probe screen: codec, profile, chroma, bit depth, color, fps and timecode.
+- [x] Track/bitstream probe screen: codec, profile, chroma, bit depth, color, fps and time base; dedicated timecode display remains.
 - [ ] Rotation, VFR, interlaced and malformed-input test corpus.
 - [ ] Frame-drop, decoder, memory and seek-latency telemetry behind a debug diagnostics panel.
 - [ ] Background/media-session behavior only if independently required; editor preview remains the
@@ -44,22 +44,21 @@ The MCRAW draft preview is not an acceptance claim for real-time playback.
 
 ### 2B. LGPL-safe FFmpeg build
 
-- [ ] Pin FFmpeg source and checksums; create reproducible NDK builds for arm64-v8a/x86_64.
-- [ ] Dynamic shared libraries, no `--enable-gpl`, no `--enable-nonfree`, no accidental GPL encoders.
-- [ ] Generate corresponding-source archive, configuration log, license notices and replacement
+- [x] Pin FFmpeg source and checksums; create reproducible NDK builds for arm64-v8a/x86_64.
+- [x] Dynamic shared libraries, no `--enable-gpl`, no `--enable-nonfree`, no accidental GPL encoders.
+- [x] Generate corresponding-source inputs, configuration log, license notices and replacement
       mechanism as CI artifacts.
-- [ ] Start with demux/decode/mux capabilities needed by ProRes and common professional sources;
+- [x] Start with demux/decode/mux capabilities needed by ProRes and common professional sources;
       keep binary size controlled with an explicit allowlist rather than an unreviewed “everything” build.
 - [ ] Fuzz demux/parser entry points and enforce allocation/time limits.
 
 ### 2C. Native playback engine
 
-- [ ] Implement `PlaybackEngine` with the same surface/control contract as Media3.
+- [x] Implement `PlaybackEngine` with the same surface/control contract as Media3.
 - [ ] Bounded packet/frame queues, audio master clock, exact seek and cancellation.
 - [ ] MediaCodec hardware decode where the FFmpeg route can use it cleanly; CPU software fallback.
 - [ ] GPU texture upload without per-frame Kotlin/CPU copies where possible.
-- [ ] Automatic engine selection after bitstream probe, with manual debug override and visible active
-      backend.
+- [x] Hardware-first automatic engine fallback with visible active backend; manual debug override remains.
 - [ ] ProRes 422/4444 playback, then older/interlaced formats and additional audio decoders.
 
 **Gate:** identical control behavior across engines; ProRes vectors play and seek correctly; no
@@ -67,15 +66,15 @@ unbounded memory; a failed hardware path reaches software fallback without a bla
 
 ## Phase 3 — Real-time MCRAW and sequence sources (P0)
 
-- [ ] Turn the current decoder into a clocked `RawFrameSource` with frame-index seeking.
-- [ ] Add MCRAW PCM audio loading/mixing and preserve audio/video timestamps.
+- [x] Turn the current decoder into a clocked RAW frame source with frame-index seeking.
+- [x] Add MCRAW PCM audio loading and preserve audio/video timestamps; multi-source mixing remains.
 - [ ] Implement GPU bilinear first, then higher-quality selectable demosaic (for example MHC after
       correctness/performance comparison).
 - [ ] Honor black/white levels, CFA layout, crop/active area, orientation and per-frame metadata.
 - [ ] Apply camera matrices/white balance in an explicit linear working space.
 - [ ] Byte-bounded read-ahead/frame cache, preview-resolution control and adaptive proxy mode.
 - [ ] Preserve gyro/accelerometer timestamps for a later stabilization module.
-- [ ] Add CinemaDNG and EXR/PNG sequence readers with frame-rate, sorting and gap policies.
+- [x] Add CinemaDNG/EXR/PNG sequence routing with frame-rate, natural sorting and explicit gap reporting.
 
 **Gate:** named-device MCRAW playback report includes full pipeline timing, dropped frames and memory;
 frame stepping is exact; audio remains synchronized; export can render from original RAW frames.
@@ -85,13 +84,13 @@ frame stepping is exact; audio remains synchronized; export can render from orig
 - [ ] Extract a common `ExportEngine` contract and persist a real export queue.
 - [ ] Foreground execution, cancel/recovery, free-space preflight, progress/ETA and error diagnostics.
 - [ ] Native frame-graph-to-FFmpeg/OpenAPV encoder bridge with backpressure.
-- [ ] ProRes 422 profiles in MOV, then ProRes 4444/4444 XQ with alpha verification.
-- [ ] APV software profiles and hardware/software selection based on actual capabilities.
-- [ ] DNxHR and FFV1 after their own bitstream/license/performance gates.
+- [x] ProRes 422 profiles in MOV, ProRes 4444/4444 XQ and alpha/bit-depth verification.
+- [x] APV software profiles and hardware/software selection based on actual capabilities.
+- [x] DNxHR and FFV1 with host bitstream/profile verification; device performance QA continues.
 - [ ] Explicit chroma, bit depth, bitrate/QP, GOP, frame rate and color metadata controls.
 - [ ] PNG/TIFF/EXR/CinemaDNG sequence sinks with naming, compression and storage checks.
 - [ ] Optional professional interchange manifest and checksums.
-- [ ] Output re-probe and preview/export frame parity checks before reporting success.
+- [x] Native output re-probe/full-decode/profile/frame-count checks; numerical preview/export parity QA remains.
 
 **Gate:** a requested profile is verified in the resulting bitstream. Any unsupported setting fails
 before or during export with an actionable error—never a silent H.264/resolution/HDR substitution.
@@ -114,7 +113,7 @@ export is not dependent on a screenshot or display-only effect.
 ## Phase 6 — Non-linear editor on top of the canvas (P1)
 
 - [ ] Versioned project persistence and autosave/migration.
-- [ ] Multi-track timeline, trim, split, ripple, slip/slide, snapping and magnetic selection.
+- [x] Multi-track timeline model with trim, split, ripple, slip/slide and snapping; magnetic selection UI remains.
 - [ ] Undo/redo using the existing immutable edit model; grouped operations and gesture transactions.
 - [ ] Proxy/optimized-media generation and original-source relinking.
 - [ ] Transform/crop, speed, reverse (with resource limits), transitions and compositing.
@@ -136,14 +135,12 @@ without losing source/color/export semantics.
 
 ## Next implementation batch (ordered)
 
-1. Run CI/device smoke tests and fix the Phase 1 baseline.
-2. Add detailed media probe and playback diagnostics.
-3. Produce the reproducible LGPL FFmpeg native build and compliance artifacts.
-4. Implement native demux/decode with a clocked ProRes playback proof of concept.
-5. Connect software frames to the shared GPU effect path and enable automatic engine routing.
-6. Convert MCRAW draft decoding into the clocked GPU RAW source.
-7. Add native ProRes export through the same graph.
-8. Add OpenAPV software export and image-sequence source/sink modules.
+1. Keep Android CI green and run physical-device native playback/export/MCRAW smoke tests.
+2. Add bounded decoder queues, richer A/V telemetry, track/subtitle selection and interlace handling.
+3. Move native software frames to bounded GPU/FP16 paths and add high-quality MCRAW demosaic/camera transforms.
+4. Add verified PNG/TIFF/EXR sequence sinks and original-RAW export.
+5. Add OCIO/ACES/LUT/scope support with preview/export numerical parity tests.
+6. Connect the versioned multi-track model to compositing UI, audio lanes, project autosave and timeline export.
 
 ## Change protocol
 

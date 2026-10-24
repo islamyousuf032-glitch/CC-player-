@@ -2,62 +2,8 @@ plugins {
     alias(libs.plugins.android.library)
 }
 
-import org.gradle.api.tasks.PathSensitivity
-import org.gradle.process.ExecOperations
+import com.ccplayer.build.BuildFfmpegTask
 import java.util.Properties
-import javax.inject.Inject
-
-abstract class BuildFfmpegTask : DefaultTask() {
-    @get:Inject
-    abstract val execOperations: ExecOperations
-
-    @get:Input
-    abstract val ndkPath: Property<String>
-
-    @get:Input
-    abstract val cmakePath: Property<String>
-
-    @get:Input
-    abstract val abis: Property<String>
-
-    @get:Input
-    abstract val jobs: Property<Int>
-
-    @get:InputFiles
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val buildInputs: ConfigurableFileCollection
-
-    @get:Internal
-    abstract val nativeRoot: DirectoryProperty
-
-    @get:OutputDirectory
-    abstract val installDirectory: DirectoryProperty
-
-    @get:OutputDirectory
-    abstract val configDirectory: DirectoryProperty
-
-    @get:OutputDirectory
-    abstract val jniLibsDirectory: DirectoryProperty
-
-    @get:OutputDirectory
-    abstract val downloadsDirectory: DirectoryProperty
-
-    @TaskAction
-    fun build() {
-        execOperations.exec {
-            workingDir = rootProject.projectDir
-            commandLine(
-                "bash",
-                rootProject.file("scripts/build-ffmpeg-android.sh").absolutePath,
-                "--ndk", ndkPath.get(),
-                "--cmake", cmakePath.get(),
-                "--output", nativeRoot.get().asFile.absolutePath,
-                "--abis", abis.get(),
-                "--jobs", jobs.get().toString(),
-            )
-        }
-    }
-}
 
 val localSdk = sequenceOf(System.getenv("ANDROID_HOME"), System.getenv("ANDROID_SDK_ROOT"))
     .firstOrNull { !it.isNullOrBlank() }

@@ -7,19 +7,21 @@
   Compose UI + ViewModel + Storage Access Framework
        |                 |                    |
        v                 v                    v
-:core:media       :media:android         :media:mcraw
-  time/rationals     PlaybackEngine          MotionCam JNI decoder
-  immutable edits    Media3 implementation   metadata + draft frames
-  color model        codec inspection
-  export profiles    shared RGB effect
-                     Media3 export
+:core:media       :media:android         :media:mcraw         :media:ffmpeg
+  time/rationals     PlaybackEngine          MotionCam JNI       native demux/decode
+  immutable edits    Media3 implementation   clocked playback     clocked A/V playback
+  project JSON       shared RGB effect       PCM audio            image decode
+  color model        Media3 export                                verified export
 ```
 
 The app has no broad storage permission and no Internet permission. Media is read through
 user-granted URIs. MCRAW native code receives a duplicated file descriptor, so Android storage
 ownership stays in Kotlin while native code can seek within the file.
 
-## Target media graph
+## Media graph
+
+The FFmpeg/MCRAW/image-sequence source routes and clocked native players are implemented below. The
+FP16 GPU compositor and some graph stages remain targets, as marked in the design rules.
 
 ```text
                                +------------------+
@@ -118,10 +120,11 @@ The professional stage must define, in order:
 OpenColorIO/ACES and `.cube`/CLF support should be compiled into mobile-friendly GPU operations or
 LUTs where possible. A display LUT must never be mistaken for a camera input transform.
 
-## Export lifecycle direction
+## Export lifecycle
 
-The current single-clip export is foreground and temporary-file based, then copies to a SAF URI.
-The production queue needs:
+The current single-clip export uses a foreground media-processing service, free-space preflight,
+progress/ETA and cancellation, writes a verified temporary file, then copies to a SAF URI. The
+production queue still needs:
 
 - foreground service / WorkManager coordination appropriate to the export duration;
 - persisted job state, cancel and recovery;
