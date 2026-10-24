@@ -23,6 +23,7 @@ import com.ccplayer.media.android.playback.PlaybackEngine
 import com.ccplayer.media.android.playback.PlaybackSnapshot
 import com.ccplayer.media.mcraw.McrawDecoder
 import com.ccplayer.media.mcraw.McrawInfo
+import com.ccplayer.media.mcraw.McrawPlaybackController
 import com.ccplayer.media.ffmpeg.FFmpegExportEngine
 import com.ccplayer.media.ffmpeg.FFmpegRuntimeInfo
 import com.ccplayer.media.ffmpeg.NativeAudioCodec
@@ -58,6 +59,7 @@ data class ExportUiState(
 data class PlayerUiState(
     val mediaName: String? = null,
     val mediaKind: MediaKind = MediaKind.NONE,
+    val recentMedia: List<RecentMedia> = emptyList(),
     val playback: PlaybackSnapshot = PlaybackSnapshot(),
     val playbackBackend: PlaybackBackend = PlaybackBackend.NONE,
     val grade: ColorGrade = ColorGrade.IDENTITY,
@@ -68,6 +70,11 @@ data class PlayerUiState(
     val mcrawInfo: McrawInfo? = null,
     val mcrawPreview: Bitmap? = null,
     val mcrawFrameIndex: Int = 0,
+    val mcrawPlaying: Boolean = false,
+    val mcrawPositionUs: Long = 0,
+    val mcrawDurationUs: Long = 0,
+    val mcrawDroppedFrames: Int = 0,
+    val mcrawPlaybackError: String? = null,
     val codecReport: DeviceCodecReport? = null,
     val nativeInfo: NativeMediaInfo? = null,
     val ffmpegRuntime: FFmpegRuntimeInfo? = null,
@@ -84,8 +91,16 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private val exportEngine = Media3ExportEngine(application)
     private val nativeExportEngine = FFmpegExportEngine(application)
     private val mcrawDecoder = McrawDecoder(application)
+    private val mcrawPlayback = McrawPlaybackController(application)
     private val contentResolver = application.contentResolver
-    private val mutableUiState = MutableStateFlow(PlayerUiState())
+    private val preferences = PlayerPreferences(application)
+    private val mutableUiState = MutableStateFlow(
+        PlayerUiState(
+            recentMedia = preferences.recentMedia(),
+            grade = preferences.savedGrade(),
+            resizeMode = preferences.savedResizeMode(),
+        ),
+    )
     val uiState: StateFlow<PlayerUiState> = mutableUiState.asStateFlow()
     val engine: PlaybackEngine get() = playbackEngine
 
@@ -97,9 +112,27 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var exportTemporaryFile: File? = null
 
     init {
+        playbackEngine.setColorGrade(mutableUiState.value.grade)
+        playbackEngine.setSpeed(preferences.savedSpeed())
+        playbackEngine.setRepeat(preferences.savedRepeat())
         viewModelScope.launch {
             playbackEngine.state.collect { playback ->
                 mutableUiState.update { it.copy(playback = playback) }
+            }
+        }
+        viewModelScope.launch {
+            mcrawPlayback.state.collect { raw ->
+                mutableUiState.update {
+                    it.copy(
+                        mcrawPreview = raw.preview,
+                        mcrawFrameIndex = raw.frameIndex,
+                        mcrawPlaying = raw.isPlaying,
+                        mcrawPositionUs = raw.positionUs,
+                        mcrawDurationUs = raw.durationUs,
+                        mcrawDroppedFrames = raw.droppedFrames,
+                        mcrawPlaybackError = raw.error,
+                    )
+                }
             }
         }
         viewModelScope.launch {
@@ -127,18 +160,25 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
 
+        saveCurrentPosition()
         mcrawJob?.cancel()
+        mcrawPlayback.pause()
         probeJob?.cancel()
         playbackEngine.clear()
         currentUri = uri
         val name = queryDisplayName(uri)
         val route = InputFormatRouter.route(name)
+        val previous = mutableUiState.value
+        val recents = preferences.recordOpen(uri, name)
         mutableUiState.value = PlayerUiState(
             mediaName = name,
             mediaKind = MediaKind.NONE,
-            codecReport = mutableUiState.value.codecReport,
-            ffmpegRuntime = mutableUiState.value.ffmpegRuntime,
-            nativeError = mutableUiState.value.nativeError,
+            recentMedia = recents,
+            grade = previous.grade,
+            resizeMode = previous.resizeMode,
+            codecReport = previous.codecReport,
+            ffmpegRuntime = previous.ffmpegRuntime,
+            nativeError = previous.nativeError,
             isBusy = true,
         )
 
@@ -148,13 +188,15 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         when (route.backend) {
             InputBackend.MCRAW_NATIVE -> openMcraw(uri)
             InputBackend.PLATFORM_FIRST -> {
-                playbackEngine.setColorGrade(ColorGrade.IDENTITY)
+                playbackEngine.setColorGrade(mutableUiState.value.grade)
                 playbackEngine.open(uri)
+                resumeVideoPosition(uri)
                 mutableUiState.update { it.copy(mediaKind = MediaKind.VIDEO, isBusy = false) }
             }
             InputBackend.FFMPEG_NATIVE -> {
-                playbackEngine.setColorGrade(ColorGrade.IDENTITY)
+                playbackEngine.setColorGrade(mutableUiState.value.grade)
                 playbackEngine.openNative(uri)
+                resumeVideoPosition(uri)
                 mutableUiState.update { it.copy(mediaKind = MediaKind.VIDEO, isBusy = false) }
             }
             else -> mutableUiState.update {
@@ -165,6 +207,25 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 )
             }
         }
+    }
+
+    private fun resumeVideoPosition(uri: Uri) {
+        val saved = preferences.positionFor(uri)
+        if (saved > 500) playbackEngine.scrubTo(saved)
+    }
+
+    private fun saveCurrentPosition() {
+        val uri = currentUri ?: return
+        val position = when (mutableUiState.value.mediaKind) {
+            MediaKind.VIDEO -> mutableUiState.value.playback.positionMs
+            MediaKind.MCRAW -> mutableUiState.value.mcrawPositionUs / 1_000L
+            else -> return
+        }
+        preferences.savePosition(uri, position)
+    }
+
+    fun removeRecent(uri: Uri) {
+        mutableUiState.update { it.copy(recentMedia = preferences.removeRecent(uri)) }
     }
 
     private fun probeNative(uri: Uri) {
@@ -181,17 +242,12 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         mcrawJob = viewModelScope.launch {
             runCatching {
                 val info = mcrawDecoder.probe(uri)
-                val preview = mcrawDecoder.renderDraftPreview(uri, frameIndex = 0)
-                info to preview
-            }.onSuccess { (info, preview) ->
+                mcrawPlayback.open(uri, info, preferences.positionFor(uri) * 1_000L)
+                info
+            }.onSuccess { info ->
                 if (currentUri == uri) {
                     mutableUiState.update {
-                        it.copy(
-                            isBusy = false,
-                            mcrawInfo = info,
-                            mcrawPreview = preview,
-                            mcrawFrameIndex = 0,
-                        )
+                        it.copy(isBusy = false, mcrawInfo = info, mcrawFrameIndex = 0)
                     }
                 }
             }.onFailure { error ->
@@ -209,33 +265,18 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun renderMcrawFrame(frameIndex: Int) {
-        val uri = currentUri ?: return
         val info = mutableUiState.value.mcrawInfo ?: return
         if (info.frameCount <= 0) return
-        val target = frameIndex.coerceIn(0, info.frameCount - 1)
-        mcrawJob?.cancel()
-        mutableUiState.update { it.copy(mcrawFrameIndex = target, isBusy = true) }
-        mcrawJob = viewModelScope.launch {
-            runCatching { mcrawDecoder.renderDraftPreview(uri, target) }
-                .onSuccess { preview ->
-                    if (currentUri == uri) {
-                        mutableUiState.update {
-                            it.copy(mcrawPreview = preview, isBusy = false, mcrawFrameIndex = target)
-                        }
-                    }
-                }
-                .onFailure { error ->
-                    if (currentUri == uri) {
-                        mutableUiState.update {
-                            it.copy(isBusy = false, notice = "Frame decode failed: ${error.message}")
-                        }
-                    }
-                }
-        }
+        mcrawPlayback.seekFrame(frameIndex.coerceIn(0, info.frameCount - 1))
     }
 
+    fun playMcrawPause() = mcrawPlayback.playPause()
     fun playPause() = playbackEngine.playPause()
-    fun pause() = playbackEngine.pause()
+    fun pause() {
+        saveCurrentPosition()
+        playbackEngine.pause()
+        mcrawPlayback.pause()
+    }
     fun seekBy(deltaMs: Long) = playbackEngine.seekBy(deltaMs)
     fun beginScrubbing() = playbackEngine.beginScrubbing()
     fun scrubTo(positionMs: Long) = playbackEngine.scrubTo(positionMs)
@@ -246,9 +287,14 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         val current = mutableUiState.value.playback.speed
         val next = speeds.firstOrNull { it > current + 0.01f } ?: speeds.first()
         playbackEngine.setSpeed(next)
+        preferences.savePlayback(next, mutableUiState.value.playback.repeat, mutableUiState.value.resizeMode, mutableUiState.value.grade)
     }
 
-    fun toggleRepeat() = playbackEngine.setRepeat(!mutableUiState.value.playback.repeat)
+    fun toggleRepeat() {
+        val repeat = !mutableUiState.value.playback.repeat
+        playbackEngine.setRepeat(repeat)
+        preferences.savePlayback(mutableUiState.value.playback.speed, repeat, mutableUiState.value.resizeMode, mutableUiState.value.grade)
+    }
 
     fun cycleResizeMode() {
         val next = when (mutableUiState.value.resizeMode) {
@@ -257,11 +303,13 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             VideoResizeMode.FILL -> VideoResizeMode.FIT
         }
         mutableUiState.update { it.copy(resizeMode = next) }
+        preferences.savePlayback(mutableUiState.value.playback.speed, mutableUiState.value.playback.repeat, next, mutableUiState.value.grade)
     }
 
     fun setGrade(grade: ColorGrade) {
         playbackEngine.setColorGrade(grade)
         mutableUiState.update { it.copy(grade = grade) }
+        preferences.savePlayback(mutableUiState.value.playback.speed, mutableUiState.value.playback.repeat, mutableUiState.value.resizeMode, grade)
     }
 
     fun showGradeSheet(show: Boolean) = mutableUiState.update { it.copy(showGradeSheet = show) }
@@ -492,7 +540,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         exportEngine.cancel()
         nativeExportEngine.cancel()
         exportTemporaryFile?.delete()
+        saveCurrentPosition()
         playbackEngine.close()
+        mcrawPlayback.close()
         super.onCleared()
     }
 }

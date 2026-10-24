@@ -235,6 +235,21 @@ fun CodecReportDialog(state: PlayerUiState, onDismiss: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    Text(
+                        "Duration ${info.durationUs / 1_000_000.0}s • bitrate ${info.bitRate} • ${info.streams.size} streams",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    info.streams.forEach { stream ->
+                        Text(
+                            "#${stream.index} ${stream.type} • ${stream.codec} ${stream.profile}" +
+                                (stream.language?.let { " • $it" } ?: "") +
+                                " • timebase ${stream.timeBaseNum}/${stream.timeBaseDen}" +
+                                (if (stream.type == "video") " • ${stream.width}×${stream.height} ${stream.pixelFormat}" else ""),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         },

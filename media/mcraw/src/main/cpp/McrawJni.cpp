@@ -19,6 +19,17 @@ namespace {
 using json = nlohmann::json;
 using Rgb = std::array<float, 3>;
 
+struct NativeSession {
+    std::unique_ptr<motioncam::Decoder> decoder;
+    motioncam::AudioChunkLoader* audioLoader = nullptr;
+};
+
+NativeSession* sessionFrom(jlong pointer) {
+    auto* session = reinterpret_cast<NativeSession*>(pointer);
+    if (!session || !session->decoder) throw std::runtime_error("MCRAW session is closed");
+    return session;
+}
+
 std::unique_ptr<motioncam::Decoder> decoderFromFd(int fd) {
 #ifdef F_DUPFD_CLOEXEC
     const int duplicate = fcntl(fd, F_DUPFD_CLOEXEC, 0);
@@ -234,4 +245,88 @@ Java_com_ccplayer_media_mcraw_McrawDecoder_nativeRenderDraftPreview(
         throwJava(env, "Unknown native MCRAW render error");
     }
     return nullptr;
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_ccplayer_media_mcraw_McrawSession_nativeOpen(JNIEnv* env, jobject, jint fd) {
+    try {
+        auto session = std::make_unique<NativeSession>();
+        session->decoder = decoderFromFd(fd);
+        session->audioLoader = &session->decoder->loadAudio();
+        return reinterpret_cast<jlong>(session.release());
+    } catch (const std::exception& error) {
+        throwJava(env, error.what());
+    } catch (...) {
+        throwJava(env, "Could not create persistent MCRAW session");
+    }
+    return 0;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_ccplayer_media_mcraw_McrawSession_nativeFrameCount(JNIEnv* env, jobject, jlong pointer) {
+    try {
+        return static_cast<jint>(sessionFrom(pointer)->decoder->getFrames().size());
+    } catch (const std::exception& error) {
+        throwJava(env, error.what());
+    }
+    return 0;
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_ccplayer_media_mcraw_McrawSession_nativeFrameTimestampUs(JNIEnv* env, jobject, jlong pointer, jint frameIndex) {
+    try {
+        const auto& frames = sessionFrom(pointer)->decoder->getFrames();
+        if (frameIndex < 0 || static_cast<size_t>(frameIndex) >= frames.size()) throw std::runtime_error("MCRAW frame index is out of range");
+        return static_cast<jlong>(frames[static_cast<size_t>(frameIndex)] / 1000);
+    } catch (const std::exception& error) {
+        throwJava(env, error.what());
+    }
+    return 0;
+}
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_ccplayer_media_mcraw_McrawSession_nativeRender(JNIEnv* env, jobject, jlong pointer, jint frameIndex, jint maxDimension) {
+    try {
+        int width = 0;
+        int height = 0;
+        auto pixels = renderDraft(*sessionFrom(pointer)->decoder, frameIndex, maxDimension, width, height);
+        if (pixels.size() + 2 > static_cast<size_t>(INT32_MAX)) throw std::runtime_error("MCRAW preview is too large");
+        auto result = env->NewIntArray(static_cast<jsize>(pixels.size() + 2));
+        if (!result) return nullptr;
+        const jint dimensions[2] = {width, height};
+        env->SetIntArrayRegion(result, 0, 2, dimensions);
+        env->SetIntArrayRegion(result, 2, static_cast<jsize>(pixels.size()), pixels.data());
+        return result;
+    } catch (const std::exception& error) {
+        throwJava(env, error.what());
+    } catch (...) {
+        throwJava(env, "Unknown persistent MCRAW render error");
+    }
+    return nullptr;
+}
+
+extern "C" JNIEXPORT jshortArray JNICALL
+Java_com_ccplayer_media_mcraw_McrawSession_nativeNextAudioChunk(JNIEnv* env, jobject, jlong pointer, jlongArray timestampUs) {
+    try {
+        if (env->GetArrayLength(timestampUs) != 1) throw std::runtime_error("Audio timestamp output must contain one value");
+        motioncam::AudioChunk chunk;
+        if (!sessionFrom(pointer)->audioLoader->next(chunk)) return nullptr;
+        if (chunk.second.size() > static_cast<size_t>(INT32_MAX)) throw std::runtime_error("MCRAW audio chunk is too large");
+        const jlong timestamp = chunk.first < 0 ? -1 : chunk.first / 1000;
+        env->SetLongArrayRegion(timestampUs, 0, 1, &timestamp);
+        auto result = env->NewShortArray(static_cast<jsize>(chunk.second.size()));
+        if (!result) return nullptr;
+        env->SetShortArrayRegion(result, 0, static_cast<jsize>(chunk.second.size()), chunk.second.data());
+        return result;
+    } catch (const std::exception& error) {
+        throwJava(env, error.what());
+    } catch (...) {
+        throwJava(env, "Unknown MCRAW audio decode error");
+    }
+    return nullptr;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_ccplayer_media_mcraw_McrawSession_nativeClose(JNIEnv*, jobject, jlong pointer) {
+    delete reinterpret_cast<NativeSession*>(pointer);
 }

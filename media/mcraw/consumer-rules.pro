@@ -1,0 +1,2 @@
+-keep class com.ccplayer.media.mcraw.McrawDecoder { *; }
+-keep class com.ccplayer.media.mcraw.McrawSession { *; }

@@ -33,6 +33,8 @@ class FFmpegPlaybackEngine(context: Context) : PlaybackEngine {
     private var player: FFmpegPlayer? = null
     private var attachedView: SurfaceView? = null
     private var grade = ColorGrade.IDENTITY
+    private var speed = 1f
+    private var repeat = false
     private var wasPlayingBeforeScrub = false
 
     private val surfaceCallback = object : SurfaceHolder.Callback {
@@ -80,7 +82,7 @@ class FFmpegPlaybackEngine(context: Context) : PlaybackEngine {
 
     override fun open(uri: Uri) {
         clear()
-        mutableState.value = PlaybackSnapshot(status = PlaybackStatus.LOADING, speed = 1f)
+        mutableState.value = PlaybackSnapshot(status = PlaybackStatus.LOADING, speed = speed, repeat = repeat)
         val newPlayer = FFmpegPlayer(appContext)
         player = newPlayer
         newPlayer.listener = object : FFmpegPlayer.Listener {
@@ -114,6 +116,8 @@ class FFmpegPlaybackEngine(context: Context) : PlaybackEngine {
                 withContext(Dispatchers.IO) {
                     attachedView?.holder?.surface?.takeIf { it.isValid }?.let(newPlayer::setSurface)
                     newPlayer.open(uri)
+                    newPlayer.setSpeed(speed)
+                    newPlayer.setRepeat(repeat)
                     newPlayer.setGrade(ColorGradeMatrix.create(grade, useHdr = false))
                 }
             }.onSuccess {
@@ -170,18 +174,21 @@ class FFmpegPlaybackEngine(context: Context) : PlaybackEngine {
     }
 
     private fun seekTo(positionMs: Long) {
-        val target = positionMs.coerceIn(0, mutableState.value.durationMs.coerceAtLeast(0))
+        val duration = mutableState.value.durationMs
+        val target = if (duration > 0) positionMs.coerceIn(0, duration) else positionMs.coerceAtLeast(0)
         player?.seekTo(target * 1_000L)
         mutableState.value = mutableState.value.copy(positionMs = target)
     }
 
     override fun setSpeed(speed: Float) {
         require(speed in 0.25f..4f) { "Speed must be between 0.25 and 4" }
+        this.speed = speed
         player?.setSpeed(speed)
         mutableState.value = mutableState.value.copy(speed = speed)
     }
 
     override fun setRepeat(repeat: Boolean) {
+        this.repeat = repeat
         player?.setRepeat(repeat)
         mutableState.value = mutableState.value.copy(repeat = repeat)
     }

@@ -63,7 +63,8 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
           if [[ -f "${RUNNER_TEMP}/cc-player-build.log" ]]; then
             echo "::error::Gradle failed; the last diagnostics are emitted below and archived."
-            tail -n 35 "${RUNNER_TEMP}/cc-player-build.log" | while IFS= read -r line; do echo "::notice::${line}"; done
+            grep -A 24 -B 3 -m 2 "What went wrong\|Could not determine the dependencies\|Circular dependency" "${RUNNER_TEMP}/cc-player-build.log" | while IFS= read -r line; do echo "::notice::${line}"; done
+            tail -n 60 "${RUNNER_TEMP}/cc-player-build.log" | while IFS= read -r line; do echo "::notice::${line}"; done
           fi
 
       - name: Upload failed build and native logs

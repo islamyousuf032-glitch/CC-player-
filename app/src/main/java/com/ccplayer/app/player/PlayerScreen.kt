@@ -147,7 +147,12 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
                 .background(MaterialTheme.colorScheme.background),
         ) {
             when (state.mediaKind) {
-                MediaKind.NONE -> WelcomeScreen(onOpen = { openLauncher.launch(arrayOf("*/*")) })
+                MediaKind.NONE -> WelcomeScreen(
+                    onOpen = { openLauncher.launch(arrayOf("*/*")) },
+                    recents = state.recentMedia,
+                    onRecent = viewModel::openMedia,
+                    onRemove = viewModel::removeRecent,
+                )
                 MediaKind.VIDEO -> VideoWorkspace(
                     state = state,
                     viewModel = viewModel,
@@ -191,7 +196,12 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
 }
 
 @Composable
-private fun WelcomeScreen(onOpen: () -> Unit) {
+private fun WelcomeScreen(
+    onOpen: () -> Unit,
+    recents: List<RecentMedia>,
+    onRecent: (android.net.Uri) -> Unit,
+    onRemove: (android.net.Uri) -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -233,6 +243,29 @@ private fun WelcomeScreen(onOpen: () -> Unit) {
         }
         Spacer(Modifier.height(28.dp))
         FoundationCard()
+        if (recents.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("RECENT FILES", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    recents.forEach { recent ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = { onRecent(recent.uri) }, modifier = Modifier.weight(1f)) {
+                                Column(Modifier.fillMaxWidth()) {
+                                    Text(recent.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    if (recent.positionMs > 0) {
+                                        Text("Resume ${formatTime(recent.positionMs)}", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            }
+                            IconButton(onClick = { onRemove(recent.uri) }) {
+                                Icon(Icons.Rounded.Close, contentDescription = "Remove ${recent.name} from recents")
+                            }
+                        }
+                    }
+                }
+            }
+        }
         Spacer(Modifier.height(12.dp))
         Text(
             "No account • no cloud upload • no broad storage permission",
@@ -454,7 +487,7 @@ private fun ExportStatusBanner(state: PlayerUiState, viewModel: PlayerViewModel)
 @Composable
 private fun McrawWorkspace(state: PlayerUiState, viewModel: PlayerViewModel, onOpen: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
-        MediaHeader(state.mediaName.orEmpty(), "NATIVE MCRAW • DRAFT FRAME DEVELOPMENT")
+        MediaHeader(state.mediaName.orEmpty(), "NATIVE MCRAW • CLOCKED DRAFT + PCM")
         Box(
             modifier = Modifier.fillMaxWidth().weight(1f).background(Color.Black),
             contentAlignment = Alignment.Center,
@@ -462,7 +495,10 @@ private fun McrawWorkspace(state: PlayerUiState, viewModel: PlayerViewModel, onO
             state.mcrawPreview?.let { bitmap ->
                 PreviewImage(bitmap = bitmap)
             }
-            if (state.mcrawPreview == null && state.isBusy) CircularProgressIndicator()
+            if (state.mcrawPreview == null && state.mcrawPlaybackError == null) CircularProgressIndicator()
+            state.mcrawPlaybackError?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(20.dp), textAlign = TextAlign.Center)
+            }
             if (state.mcrawPreview != null && state.isBusy) {
                 LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.BottomCenter))
             }
@@ -479,6 +515,19 @@ private fun McrawWorkspace(state: PlayerUiState, viewModel: PlayerViewModel, onO
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    FilledIconButton(onClick = viewModel::playMcrawPause) {
+                        Icon(
+                            if (state.mcrawPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                            contentDescription = if (state.mcrawPlaying) "Pause MCRAW" else "Play MCRAW",
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        "${formatTime(state.mcrawPositionUs / 1000)} / ${formatTime(state.mcrawDurationUs / 1000)}  •  dropped ${state.mcrawDroppedFrames}",
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
                 if (info.frameCount > 1) {
                     var pendingFrame by remember(info) { mutableStateOf<Int?>(null) }
                     Slider(
@@ -495,7 +544,7 @@ private fun McrawWorkspace(state: PlayerUiState, viewModel: PlayerViewModel, onO
                 }
             }
             Text(
-                "Draft only: fast CFA development and white balance, without audio or final camera color transforms. Real-time GPU playback is the next MCRAW stage.",
+                "Persistent native decoding, exact frame timestamps, PCM audio and one-frame read-ahead. Draft CPU demosaic/white balance is not the final camera color or GPU quality stage.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.secondary,
             )
