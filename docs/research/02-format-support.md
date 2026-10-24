@@ -33,7 +33,7 @@ performance are separate gates.
 | DNxHR LB/SQ/HQ/HQX/444 | **Native MOV export** | Exact profile and 8/10-bit pixel format are verified. |
 | FFV1 / FFV1-alpha in Matroska | **Native export, including 16-bit and alpha variants** | FLAC/PCM options depend on the selected profile; lossless throughput is storage/CPU intensive. |
 | Foreground export operation | **Foreground media-processing service, cancel, temporary-file cleanup, free-space preflight, progress/ETA and SAF copy** | A durable multi-job render queue/resume is not yet implemented. |
-| EXR / PNG / TIFF / CinemaDNG sequence | Not connected as an export sink | Requires numbering, compression, color/alpha, sidecar and multi-file SAF verification. |
+| PNG / TIFF / DPX / OpenEXR sequence | **Implemented: RGB/RGBA, 16-bit integer or EXR 32-bit float, numbered SAF files and SHA-256 manifest** | Host full-decode/frame-count/pixel-format checks pass; destination folder must be empty. EXR is not yet an ACES/camera-linear transform. CinemaDNG writing remains unconnected. |
 | MCRAW / ProRes RAW / BRAW / R3D | **No general RAW writer claimed** | Decode access does not imply a legal/functional RAW encoder. |
 | “Same as input” | Only codec copy for the explicit compatible native audio case; no universal graded transmux button | Graded/edited frames require re-encoding. |
 

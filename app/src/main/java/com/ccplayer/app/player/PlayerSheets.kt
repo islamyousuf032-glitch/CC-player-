@@ -127,11 +127,14 @@ fun ExportSheet(
     onDismiss: () -> Unit,
     onChooseDestination: () -> Unit,
 ) {
+    val selectedProfile = ExportProfiles.byId(selectedProfileId)
+    val isSequence = selectedProfile.container.isImageSequence
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp)) {
-            Text("Export graded video", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(if (isSequence) "Export graded image sequence" else "Export graded video", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text(
-                "Single clip • exact codec/profile/pixel format • native output re-decode verification",
+                if (isSequence) "Empty folder • numbered files • full decode verification • per-frame SHA-256 manifest"
+                else "Single clip • exact codec/profile/pixel format • native output re-decode verification",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -169,10 +172,10 @@ fun ExportSheet(
             Spacer(Modifier.height(16.dp))
             Button(
                 onClick = onChooseDestination,
-                enabled = isProfileEnabled(ExportProfiles.byId(selectedProfileId)),
+                enabled = isProfileEnabled(selectedProfile),
                 modifier = Modifier.fillMaxWidth().height(50.dp),
             ) {
-                Text("Choose destination")
+                Text(if (isSequence) "Choose empty sequence folder" else "Choose destination")
             }
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }

@@ -12,12 +12,20 @@ enum class VideoCodec(val displayName: String, val mimeType: String?) {
     PRORES_4444_XQ("ProRes 4444 XQ", null),
     DNXHR("DNxHR", null),
     FFV1("FFV1", null),
+    PNG("PNG", null),
+    TIFF("TIFF", null),
+    DPX("DPX", null),
+    OPEN_EXR("OpenEXR", null),
 }
 
-enum class MediaContainer(val extension: String, val mimeType: String) {
+enum class MediaContainer(val extension: String, val mimeType: String, val isImageSequence: Boolean = false) {
     MP4("mp4", "video/mp4"),
     MOV("mov", "video/quicktime"),
     MATROSKA("mkv", "video/x-matroska"),
+    PNG_SEQUENCE("png", "image/png", true),
+    TIFF_SEQUENCE("tif", "image/tiff", true),
+    DPX_SEQUENCE("dpx", "image/x-dpx", true),
+    EXR_SEQUENCE("exr", "image/x-exr", true),
 }
 
 enum class ExportBackend { MEDIA3, FFMPEG, OPEN_APV }
@@ -73,6 +81,15 @@ object ExportProfiles {
     val FFV1_ALPHA = ExportProfile("ffv1-yuva444p16-mkv", VideoCodec.FFV1, MediaContainer.MATROSKA, ExportBackend.FFMPEG, ImplementationStatus.IMPLEMENTED,
         title = "FFV1 • 16-bit 4:4:4:4 + FLAC", encoderName = "ffv1", encoderProfile = "default", pixelFormat = "yuva444p16", audio = ExportAudioCodec.FLAC)
 
+    val PNG_16 = sequence("png-16-sequence", VideoCodec.PNG, MediaContainer.PNG_SEQUENCE, "png", "rgb48be", "PNG sequence • 16-bit RGB")
+    val PNG_16_ALPHA = sequence("png-16-alpha-sequence", VideoCodec.PNG, MediaContainer.PNG_SEQUENCE, "png", "rgba64be", "PNG sequence • 16-bit RGBA")
+    val TIFF_16 = sequence("tiff-16-sequence", VideoCodec.TIFF, MediaContainer.TIFF_SEQUENCE, "tiff", "rgb48le", "TIFF sequence • 16-bit RGB")
+    val TIFF_16_ALPHA = sequence("tiff-16-alpha-sequence", VideoCodec.TIFF, MediaContainer.TIFF_SEQUENCE, "tiff", "rgba64le", "TIFF sequence • 16-bit RGBA")
+    val DPX_16 = sequence("dpx-16-sequence", VideoCodec.DPX, MediaContainer.DPX_SEQUENCE, "dpx", "rgb48be", "DPX sequence • 16-bit RGB")
+    val DPX_16_ALPHA = sequence("dpx-16-alpha-sequence", VideoCodec.DPX, MediaContainer.DPX_SEQUENCE, "dpx", "rgba64be", "DPX sequence • 16-bit RGBA")
+    val EXR_FLOAT = sequence("exr-float-sequence", VideoCodec.OPEN_EXR, MediaContainer.EXR_SEQUENCE, "exr", "gbrpf32le", "OpenEXR sequence • 32-bit float RGB")
+    val EXR_FLOAT_ALPHA = sequence("exr-float-alpha-sequence", VideoCodec.OPEN_EXR, MediaContainer.EXR_SEQUENCE, "exr", "gbrapf32le", "OpenEXR sequence • 32-bit float RGBA")
+
     val APV_SOFTWARE_400_10 = apvSoftware("apv-software-400-10-mp4", "400_10", "gray10", "APV • software monochrome 10-bit")
     val APV_SOFTWARE = apvSoftware("apv-software-422-10-mp4", "422_10", "yuv422p10", "APV • software 4:2:2 10-bit")
     val APV_SOFTWARE_422_12 = apvSoftware("apv-software-422-12-mp4", "422_12", "yuv422p12", "APV • software 4:2:2 12-bit")
@@ -87,6 +104,8 @@ object ExportProfiles {
         PRORES_4444, PRORES_4444_ALPHA, PRORES_4444_XQ, PRORES_4444_XQ_ALPHA,
         DNXHR_LB, DNXHR_SQ, DNXHR_HQ, DNXHR_HQX, DNXHR_444,
         FFV1, FFV1_ALPHA,
+        PNG_16, PNG_16_ALPHA, TIFF_16, TIFF_16_ALPHA,
+        DPX_16, DPX_16_ALPHA, EXR_FLOAT, EXR_FLOAT_ALPHA,
         APV_SOFTWARE_400_10, APV_SOFTWARE, APV_SOFTWARE_422_12,
         APV_SOFTWARE_444_10, APV_SOFTWARE_444_12,
         APV_SOFTWARE_4444_10, APV_SOFTWARE_4444_12,
@@ -102,7 +121,12 @@ object ExportProfiles {
             VideoCodec.PRORES_422_HQ, VideoCodec.PRORES_4444, VideoCodec.PRORES_4444_XQ,
             VideoCodec.DNXHR -> if (profile.container != MediaContainer.MOV) add("${profile.title} requires MOV")
             VideoCodec.FFV1 -> if (profile.container != MediaContainer.MATROSKA) add("FFV1 requires Matroska")
+            VideoCodec.PNG -> if (profile.container != MediaContainer.PNG_SEQUENCE) add("PNG requires an image-sequence destination")
+            VideoCodec.TIFF -> if (profile.container != MediaContainer.TIFF_SEQUENCE) add("TIFF requires an image-sequence destination")
+            VideoCodec.DPX -> if (profile.container != MediaContainer.DPX_SEQUENCE) add("DPX requires an image-sequence destination")
+            VideoCodec.OPEN_EXR -> if (profile.container != MediaContainer.EXR_SEQUENCE) add("OpenEXR requires an image-sequence destination")
         }
+        if (profile.container.isImageSequence && profile.audio != ExportAudioCodec.NONE) add("Image sequences cannot carry an audio stream")
         if (profile.backend == ExportBackend.MEDIA3 && profile.codec.mimeType == null) add("Media3 cannot encode ${profile.title}; use native")
         if (profile.usesNativeBackend && (profile.encoderName.isNullOrBlank() || profile.pixelFormat.isNullOrBlank())) add("Native profile needs exact encoder and pixel format")
     }
@@ -117,6 +141,16 @@ object ExportProfiles {
         title: String = codec.displayName,
     ) = ExportProfile(id, codec, MediaContainer.MOV, ExportBackend.FFMPEG, ImplementationStatus.IMPLEMENTED,
         title = title, encoderName = encoder, encoderProfile = encoderProfile, pixelFormat = pixelFormat, audio = audio)
+
+    private fun sequence(
+        id: String,
+        codec: VideoCodec,
+        container: MediaContainer,
+        encoder: String,
+        pixelFormat: String,
+        title: String,
+    ) = ExportProfile(id, codec, container, ExportBackend.FFMPEG, ImplementationStatus.IMPLEMENTED,
+        title = title, encoderName = encoder, encoderProfile = "default", pixelFormat = pixelFormat, audio = ExportAudioCodec.NONE)
 
     private fun apvSoftware(id: String, profile: String, pixelFormat: String, title: String) = ExportProfile(
         id, VideoCodec.APV, MediaContainer.MP4, ExportBackend.OPEN_APV, ImplementationStatus.IMPLEMENTED,

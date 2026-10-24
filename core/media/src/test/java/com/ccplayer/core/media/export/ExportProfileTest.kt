@@ -30,6 +30,17 @@ class ExportProfileTest {
     }
 
     @Test
+    fun imageSequenceProfilesAreExplicitAndAudioLess() {
+        val sequences = ExportProfiles.current.filter { it.container.isImageSequence }
+        assertEquals(8, sequences.size)
+        sequences.forEach { profile ->
+            assertEquals(ExportAudioCodec.NONE, profile.audio)
+            assertEquals(ImplementationStatus.IMPLEMENTED, profile.status)
+        }
+        assertTrue(ExportProfiles.validate(ExportProfiles.PNG_16.copy(audio = ExportAudioCodec.AAC)).isNotEmpty())
+    }
+
+    @Test
     fun media3CannotSilentlyClaimProRes() {
         val invalid = ExportProfiles.PRORES.copy(backend = ExportBackend.MEDIA3)
         assertTrue(ExportProfiles.validate(invalid).isNotEmpty())

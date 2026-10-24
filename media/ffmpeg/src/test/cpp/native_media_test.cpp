@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <filesystem>
 #include <iostream>
 #include <mutex>
 #include <string>
@@ -246,6 +247,45 @@ void run() {
     const auto image = decodeImage(prores.outputPath, 160);
     require(image.width == 160 && image.height == 120 && image.pixels.size() == static_cast<size_t>(160 * 120),
         "scaled native image/sequence frame decode");
+
+    require(std::system("mkdir -p /tmp/ccplayer-native-tests/png-sequence") == 0, "create sequence output directory");
+    auto pngSequence = request(input, directory + "/png-sequence/frame_%06d.png");
+    pngSequence.codec = "png";
+    pngSequence.profile = "default";
+    pngSequence.pixelFormat = "rgb48be";
+    pngSequence.audioCodec = "NONE";
+    const auto pngResult = transcode(pngSequence, {}, {});
+    require(pngResult.encodedFrames == kFrames && pngResult.bitDepth == 16, "PNG sequence export and verification");
+    int pngFiles = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(directory + "/png-sequence")) {
+        if (entry.path().extension() == ".png") ++pngFiles;
+    }
+    require(pngFiles == kFrames, "numbered PNG sequence file count");
+    std::cout << "PNG sequence: " << toJson(pngResult) << '\n';
+
+    struct SequenceVariant { const char* codec; const char* extension; const char* format; int depth; };
+    const SequenceVariant sequenceVariants[] = {
+        {"png", "png", "rgba64be", 16},
+        {"tiff", "tif", "rgb48le", 16},
+        {"tiff", "tif", "rgba64le", 16},
+        {"dpx", "dpx", "rgb48be", 16},
+        {"dpx", "dpx", "rgba64be", 16},
+        {"exr", "exr", "gbrpf32le", 32},
+        {"exr", "exr", "gbrapf32le", 32},
+    };
+    int sequenceIndex = 0;
+    for (const auto& variant : sequenceVariants) {
+        const std::string sequenceDirectory = directory + "/sequence-" + std::to_string(sequenceIndex++);
+        require(std::system(("mkdir -p " + sequenceDirectory).c_str()) == 0, "create sequence variant directory");
+        auto sequence = request(input, sequenceDirectory + "/frame_%06d." + variant.extension);
+        sequence.codec = variant.codec;
+        sequence.profile = "default";
+        sequence.pixelFormat = variant.format;
+        sequence.audioCodec = "NONE";
+        const auto sequenceResult = transcode(sequence, {}, {});
+        require(sequenceResult.encodedFrames == kFrames && sequenceResult.bitDepth == variant.depth,
+            std::string("Sequence variant ") + variant.codec + " / " + variant.format);
+    }
 
     auto prores4444 = request(input, directory + "/prores-4444.mov");
     prores4444.codec = "prores_ks";

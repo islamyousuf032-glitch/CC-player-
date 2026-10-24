@@ -88,8 +88,8 @@ frame stepping is exact; audio remains synchronized; export can render from orig
 - [x] APV software profiles and hardware/software selection based on actual capabilities.
 - [x] DNxHR and FFV1 with host bitstream/profile verification; device performance QA continues.
 - [ ] Explicit chroma, bit depth, bitrate/QP, GOP, frame rate and color metadata controls.
-- [ ] PNG/TIFF/EXR/CinemaDNG sequence sinks with naming, compression and storage checks.
-- [ ] Optional professional interchange manifest and checksums.
+- [x] PNG/TIFF/DPX/EXR sequence sinks with numbering, empty-folder/storage checks and full decode verification; CinemaDNG and per-codec compression controls remain.
+- [x] Image-sequence interchange manifest with per-frame SHA-256; single-file sidecars remain optional.
 - [x] Native output re-probe/full-decode/profile/frame-count checks; numerical preview/export parity QA remains.
 
 **Gate:** a requested profile is verified in the resulting bitstream. Any unsupported setting fails
@@ -138,7 +138,7 @@ without losing source/color/export semantics.
 1. Keep Android CI green and run physical-device native playback/export/MCRAW smoke tests.
 2. Add bounded decoder queues, richer A/V telemetry, track/subtitle selection and interlace handling.
 3. Move native software frames to bounded GPU/FP16 paths and add high-quality MCRAW demosaic/camera transforms.
-4. Add verified PNG/TIFF/EXR sequence sinks and original-RAW export.
+4. Add CinemaDNG/original-RAW export and per-codec sequence compression controls.
 5. Add OCIO/ACES/LUT/scope support with preview/export numerical parity tests.
 6. Connect the versioned multi-track model to compositing UI, audio lanes, project autosave and timeline export.
 

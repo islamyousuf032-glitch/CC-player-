@@ -73,6 +73,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
+import com.ccplayer.core.media.export.ExportProfiles
 import com.ccplayer.media.android.playback.PlaybackStatus
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -92,6 +93,9 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("video/*"),
     ) { uri ->
+        uri?.let(viewModel::startExport)
+    }
+    val sequenceExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         uri?.let(viewModel::startExport)
     }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -193,7 +197,13 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
             isProfileEnabled = viewModel::isExportProfileEnabled,
             onProfileSelected = viewModel::selectExportProfile,
             onDismiss = { viewModel.showExportSheet(false) },
-            onChooseDestination = { exportLauncher.launch(viewModel.suggestedExportFileName()) },
+            onChooseDestination = {
+                if (ExportProfiles.byId(state.export.selectedProfileId).container.isImageSequence) {
+                    sequenceExportLauncher.launch(null)
+                } else {
+                    exportLauncher.launch(viewModel.suggestedExportFileName())
+                }
+            },
         )
     }
     if (state.showCodecReport) {

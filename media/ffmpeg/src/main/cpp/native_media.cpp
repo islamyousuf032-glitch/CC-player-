@@ -206,6 +206,10 @@ std::string runtimeInfoJson() {
         {"flac", "FLAC"},
         {"pcm_s16le", "PCM 16-bit"},
         {"pcm_s24le", "PCM 24-bit"},
+        {"png", "PNG image sequence"},
+        {"tiff", "TIFF image sequence"},
+        {"dpx", "DPX image sequence"},
+        {"exr", "OpenEXR image sequence"},
     };
     bool first = true;
     for (const auto& entry : encoders) {

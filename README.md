@@ -22,6 +22,8 @@ performance আলাদা verification gate; “সব ফরম্যাট �
 - Verified native ProRes (422 ও 4444 family), DNxHR, FFV1/alpha এবং software OpenAPV
   400/422/444/4444 10/12-bit export; output re-probe/full decode, cancellation ও cleanup।
 - Foreground media-processing export, free-space preflight, progress/ETA এবং SAF destination copy।
+- Verified PNG/TIFF/DPX/OpenEXR RGB/RGBA sequence export, numbered-file cleanup এবং per-frame
+  SHA-256 JSON manifest; EXR float sink-কে full ACES/scene-linear color management বলা হচ্ছে না।
 - Integer-microsecond multi-track edit model, rational clip speed, split/trim/ripple/slip/slide/snap,
   undo/redo এবং versioned project JSON।
 - Reproducible pinned FFmpeg/OpenAPV builds, host ASan integration matrix, Android CI, license/source
@@ -29,7 +31,7 @@ performance আলাদা verification gate; “সব ফরম্যাট �
 
 ## এখনও সম্পূর্ণ নয়
 
-High-quality GPU MCRAW demosaic/camera transforms, professional OCIO/ACES/LUT/scopes, sequence export,
+High-quality GPU MCRAW demosaic/camera transforms, professional OCIO/ACES/LUT/scopes, CinemaDNG export,
 multi-track compositing UI/render/export, durable multi-job export queue এবং broad physical-device
 performance/interlace/audio-track QA এখনও বাকি। Existing interfaces ও roadmap flexible; নতুন feature
 একই source/clock/frame-graph/export boundaries-তে যুক্ত হবে।

@@ -143,8 +143,16 @@ void AudioPipeline::processFrame(FramePtr frame) {
         const int planes = planar ? inputLayout.nb_channels : 1;
         const int64_t byteOffset = static_cast<int64_t>(first) * bytesPerSample * (planar ? 1 : inputLayout.nb_channels);
         for (int plane = 0; plane < planes; ++plane) {
-            if (frame->data[plane]) frame->data[plane] += byteOffset;
-            if (frame->extended_data && plane < frame->ch_layout.nb_channels) frame->extended_data[plane] += byteOffset;
+            if (frame->extended_data && plane < frame->ch_layout.nb_channels) {
+                frame->extended_data[plane] += byteOffset;
+                // For up to AV_NUM_DATA_POINTERS channels, extended_data == data. Updating both
+                // independently applies the trim twice and leaves swr_convert with invalid pointers.
+                if (frame->extended_data != frame->data && plane < AV_NUM_DATA_POINTERS) {
+                    frame->data[plane] = frame->extended_data[plane];
+                }
+            } else if (plane < AV_NUM_DATA_POINTERS && frame->data[plane]) {
+                frame->data[plane] += byteOffset;
+            }
         }
         frame->nb_samples = last - first;
         if (timestamp != AV_NOPTS_VALUE) frame->pts = timestamp + av_rescale_q(first, {1, inputSampleRate}, inputStream->time_base);

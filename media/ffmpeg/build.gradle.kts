@@ -69,7 +69,7 @@ androidComponents {
     onVariants(selector().all()) { variant ->
         variant.sources.jniLibs?.addGeneratedSourceDirectory(
             buildFfmpeg,
-            BuildFfmpegTask::jniLibsDirectory,
+            { task -> task.getJniLibsDirectory() },
         )
     }
 }
