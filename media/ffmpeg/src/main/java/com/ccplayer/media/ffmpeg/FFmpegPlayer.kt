@@ -9,7 +9,6 @@ import android.media.PlaybackParams
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.view.Surface
-import androidx.annotation.Keep
 import java.io.Closeable
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicLong
@@ -64,7 +63,6 @@ class FFmpegPlayer(context: Context) : Closeable {
     fun positionUs(): Long = nativePosition(handle())
     fun durationUs(): Long = nativeDuration(handle())
 
-    @Keep
     fun onNativeAudio(samples: ByteBuffer, sampleRate: Int, channels: Int, presentationUs: Long, generation: Long) {
         if (generation != audioGeneration) {
             configureAudio(sampleRate, channels, presentationUs, generation)
@@ -77,7 +75,6 @@ class FFmpegPlayer(context: Context) : Closeable {
         }
     }
 
-    @Keep
     fun onNativeAudioPosition(): Long {
         val track = audioTrack ?: return -1
         val anchor = audioAnchorPositionUs
@@ -89,7 +86,6 @@ class FFmpegPlayer(context: Context) : Closeable {
         return anchor + frames * 1_000_000L / track.sampleRate
     }
 
-    @Keep
     fun onNativeAudioFlush() {
         audioGeneration = Long.MIN_VALUE
         audioAnchorPositionUs = -1
@@ -99,23 +95,19 @@ class FFmpegPlayer(context: Context) : Closeable {
         }
     }
 
-    @Keep
     fun onNativeAudioSpeed(speed: Float) {
         audioSpeed = speed
         audioTrack?.let { track -> runCatching { track.playbackParams = playbackParams(speed) } }
     }
 
-    @Keep
     fun onNativeState(playing: Boolean, ended: Boolean) {
         listener?.onState(playing, ended)
     }
 
-    @Keep
     fun onNativeVideoSize(width: Int, height: Int, pixelAspectRatio: Float) {
         listener?.onVideoSize(width, height, pixelAspectRatio)
     }
 
-    @Keep
     fun onNativePlaybackError(message: String) {
         listener?.onError(message)
     }

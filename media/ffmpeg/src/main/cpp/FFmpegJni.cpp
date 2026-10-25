@@ -20,7 +20,7 @@ private:
 };
 
 void throwException(JNIEnv* env, const std::string& message) {
-    const auto* exceptionClass = env->FindClass("com/ccplayer/media/ffmpeg/FFmpegException");
+    jclass exceptionClass = env->FindClass("com/ccplayer/media/ffmpeg/FFmpegException");
     if (exceptionClass) env->ThrowNew(exceptionClass, message.c_str());
 }
 
