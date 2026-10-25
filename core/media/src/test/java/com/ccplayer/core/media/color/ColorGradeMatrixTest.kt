@@ -48,6 +48,24 @@ class ColorGradeMatrixTest {
         }
     }
 
+    @Test
+    fun liftGainOffsetAreAppliedAfterContrastPerChannel() {
+        val grade = ColorGrade(
+            lift = RgbVector(0.1f, 0.2f, 0.3f),
+            gain = RgbVector(2f, 0.5f, 1f),
+            offset = RgbVector(0.01f, 0.02f, 0.03f),
+        )
+        val matrix = ColorGradeMatrix.create(grade, false)
+        val input = floatArrayOf(0.2f, 0.4f, 0.6f)
+        val expected = floatArrayOf(0.31f, 0.32f, 0.63f)
+        for (output in 0..2) {
+            val actual = input[0] * matrix[output] + input[1] * matrix[4 + output] +
+                input[2] * matrix[8 + output] + matrix[12 + output]
+            assertEquals(expected[output], actual, 0.0001f)
+        }
+        assertEquals(1f, matrix[15], 0f)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun nonFiniteGradeIsRejected() {
         ColorGrade(exposureStops = Float.NaN)

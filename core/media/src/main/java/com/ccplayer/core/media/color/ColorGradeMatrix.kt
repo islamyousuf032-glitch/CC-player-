@@ -6,7 +6,8 @@ import kotlin.math.pow
  * Builds an Android/OpenGL column-major RGBA matrix in linear light.
  *
  * Operation order is exposure/white balance -> saturation -> contrast around a scene-linear 0.18
- * pivot. Alpha is untouched and values are deliberately not clamped, preserving HDR headroom.
+ * pivot -> per-channel lift/gain/offset. Alpha is untouched and values are deliberately not clamped,
+ * preserving HDR headroom.
  * This is the basic grading stage, not a replacement for a future OCIO/ACES transform.
  */
 object ColorGradeMatrix {
@@ -31,15 +32,17 @@ object ColorGradeMatrix {
 
         val result = FloatArray(16)
         for (output in 0..2) {
+            val outputGain = grade.gain[output]
             for (input in 0..2) {
                 val identityWeight = if (output == input) grade.saturation else 0f
                 val saturationWeight = identityWeight + luma[input] * (1f - grade.saturation)
-                // Column-major S * G: white-balance each input before computing saturation.
-                val value = contrast * saturationWeight * gains[input]
+                // Column-major: white balance, saturation, contrast, then output-channel gain.
+                val value = outputGain * contrast * saturationWeight * gains[input]
                 result[input * 4 + output] = value
             }
             result[3 * 4 + output] = 0f
-            result[12 + output] = contrastOffset
+            result[12 + output] = outputGain * contrastOffset +
+                grade.lift[output] * (1f - outputGain) + grade.offset[output]
         }
         result[15] = 1f
         return result

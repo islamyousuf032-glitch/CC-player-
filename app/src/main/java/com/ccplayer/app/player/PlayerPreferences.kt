@@ -3,6 +3,7 @@ package com.ccplayer.app.player
 import android.content.Context
 import android.net.Uri
 import com.ccplayer.core.media.color.ColorGrade
+import com.ccplayer.core.media.color.ColorGradeJson
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -68,6 +69,7 @@ class PlayerPreferences(context: Context) {
             .putFloat(KEY_SPEED, speed)
             .putBoolean(KEY_REPEAT, repeat)
             .putString(KEY_RESIZE, resizeMode.name)
+            .putString(KEY_GRADE, ColorGradeJson.encode(grade).toString())
             .putFloat(KEY_EXPOSURE, grade.exposureStops)
             .putFloat(KEY_CONTRAST, grade.contrast)
             .putFloat(KEY_SATURATION, grade.saturation)
@@ -81,15 +83,21 @@ class PlayerPreferences(context: Context) {
     fun savedResizeMode(): VideoResizeMode = runCatching {
         VideoResizeMode.valueOf(preferences.getString(KEY_RESIZE, VideoResizeMode.FIT.name)!!)
     }.getOrDefault(VideoResizeMode.FIT)
-    fun savedGrade(): ColorGrade = runCatching {
-        ColorGrade(
-            exposureStops = preferences.getFloat(KEY_EXPOSURE, 0f),
-            contrast = preferences.getFloat(KEY_CONTRAST, 0f),
-            saturation = preferences.getFloat(KEY_SATURATION, 1f),
-            temperature = preferences.getFloat(KEY_TEMPERATURE, 0f),
-            tint = preferences.getFloat(KEY_TINT, 0f),
-        )
-    }.getOrDefault(ColorGrade.IDENTITY)
+    fun savedGrade(): ColorGrade {
+        val serialized = preferences.getString(KEY_GRADE, null)
+        if (serialized != null) {
+            return runCatching { ColorGradeJson.decode(JSONObject(serialized)) }.getOrDefault(ColorGrade.IDENTITY)
+        }
+        return runCatching {
+            ColorGrade(
+                exposureStops = preferences.getFloat(KEY_EXPOSURE, 0f),
+                contrast = preferences.getFloat(KEY_CONTRAST, 0f),
+                saturation = preferences.getFloat(KEY_SATURATION, 1f),
+                temperature = preferences.getFloat(KEY_TEMPERATURE, 0f),
+                tint = preferences.getFloat(KEY_TINT, 0f),
+            )
+        }.getOrDefault(ColorGrade.IDENTITY)
+    }
 
     private fun writeRecents(items: List<RecentMedia>) {
         val array = JSONArray()
@@ -111,6 +119,7 @@ class PlayerPreferences(context: Context) {
         const val KEY_SPEED = "speed"
         const val KEY_REPEAT = "repeat"
         const val KEY_RESIZE = "resize"
+        const val KEY_GRADE = "grade_v2"
         const val KEY_EXPOSURE = "exposure"
         const val KEY_CONTRAST = "contrast"
         const val KEY_SATURATION = "saturation"

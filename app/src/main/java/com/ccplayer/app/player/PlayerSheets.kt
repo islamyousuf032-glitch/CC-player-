@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ccplayer.core.media.color.ColorGrade
+import com.ccplayer.core.media.color.RgbVector
 import com.ccplayer.core.media.export.ExportProfiles
 import com.ccplayer.core.media.export.ExportProfile
 import com.ccplayer.media.android.codec.CodecSupport
@@ -91,6 +92,9 @@ fun GradeSheet(
                 display = String.format(Locale.ROOT, "%+.2f", grade.tint),
                 onChange = { onGradeChange(grade.copy(tint = it)) },
             )
+            RgbGradeControls("Lift", grade.lift, -0.25f..0.25f) { onGradeChange(grade.copy(lift = it)) }
+            RgbGradeControls("Gain", grade.gain, 0f..2f) { onGradeChange(grade.copy(gain = it)) }
+            RgbGradeControls("Offset", grade.offset, -0.25f..0.25f) { onGradeChange(grade.copy(offset = it)) }
             Text(
                 "Camera-specific input transforms, ACES/OCIO, LUTs, curves and scopes belong to the professional color stage; these controls do not claim to replace them.",
                 style = MaterialTheme.typography.bodySmall,
@@ -98,6 +102,25 @@ fun GradeSheet(
             )
             Spacer(Modifier.height(28.dp))
         }
+    }
+}
+
+@Composable
+private fun RgbGradeControls(
+    title: String,
+    value: RgbVector,
+    range: ClosedFloatingPointRange<Float>,
+    onChange: (RgbVector) -> Unit,
+) {
+    Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+    GradeSlider("Red", value.red, range, String.format(Locale.ROOT, "%+.3f", value.red)) {
+        onChange(value.copy(red = it))
+    }
+    GradeSlider("Green", value.green, range, String.format(Locale.ROOT, "%+.3f", value.green)) {
+        onChange(value.copy(green = it))
+    }
+    GradeSlider("Blue", value.blue, range, String.format(Locale.ROOT, "%+.3f", value.blue)) {
+        onChange(value.copy(blue = it))
     }
 }
 

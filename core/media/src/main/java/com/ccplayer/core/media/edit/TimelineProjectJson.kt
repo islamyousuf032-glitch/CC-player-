@@ -1,6 +1,6 @@
 package com.ccplayer.core.media.edit
 
-import com.ccplayer.core.media.color.ColorGrade
+import com.ccplayer.core.media.color.ColorGradeJson
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -42,7 +42,7 @@ object TimelineProjectJson {
                         .put("durationUs", clip.durationUs)
                         .put("speedNumerator", clip.speedNumerator)
                         .put("speedDenominator", clip.speedDenominator)
-                        .put("grade", encodeGrade(clip.grade)),
+                        .put("grade", ColorGradeJson.encode(clip.grade)),
                 )
             }
             tracks.put(JSONObject().put("id", track.id).put("clips", clips))
@@ -68,7 +68,7 @@ object TimelineProjectJson {
                             durationUs = clip.getLong("durationUs"),
                             speedNumerator = clip.optInt("speedNumerator", 1),
                             speedDenominator = clip.optInt("speedDenominator", 1),
-                            grade = decodeGrade(clip.optJSONObject("grade")),
+                            grade = ColorGradeJson.decode(clip.optJSONObject("grade")),
                         )
                     },
                 )
@@ -76,18 +76,4 @@ object TimelineProjectJson {
         )
     }
 
-    private fun encodeGrade(grade: ColorGrade): JSONObject = JSONObject()
-        .put("exposureStops", grade.exposureStops.toDouble())
-        .put("contrast", grade.contrast.toDouble())
-        .put("saturation", grade.saturation.toDouble())
-        .put("temperature", grade.temperature.toDouble())
-        .put("tint", grade.tint.toDouble())
-
-    private fun decodeGrade(value: JSONObject?): ColorGrade = if (value == null) ColorGrade.IDENTITY else ColorGrade(
-        exposureStops = value.optDouble("exposureStops", 0.0).toFloat(),
-        contrast = value.optDouble("contrast", 0.0).toFloat(),
-        saturation = value.optDouble("saturation", 1.0).toFloat(),
-        temperature = value.optDouble("temperature", 0.0).toFloat(),
-        tint = value.optDouble("tint", 0.0).toFloat(),
-    )
 }

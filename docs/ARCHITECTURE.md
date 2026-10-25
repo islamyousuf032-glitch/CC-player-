@@ -104,8 +104,10 @@ snapshots. Export progress and cancellation come from the engine, not a fake tim
 
 ## Color pipeline direction
 
-The implemented matrix is a small **linear-light basic grade**. It preserves HDR values instead of
-clamping them, but it is not a complete professional color-management system.
+The implemented matrix is a **linear-light basic grade** with exposure/white balance, saturation,
+contrast and per-channel lift/gain/offset. Preview and native export consume the same matrix. It
+preserves HDR values instead of clamping them, but it is not a complete professional color-management
+system; nonlinear gamma/CDL/curves require a shared CPU/GPU stage rather than a matrix approximation.
 
 The professional stage must define, in order:
 

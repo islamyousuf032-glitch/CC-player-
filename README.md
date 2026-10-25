@@ -17,7 +17,8 @@ performance আলাদা verification gate; “সব ফরম্যাট �
 - SAF EXR/DPX/PNG/TIFF/JPEG image-sequence folder reader, natural numeric sorting, gap report এবং
   rational-fps playback।
 - Recent files, resume position এবং local playback preferences।
-- Basic linear-light grade preview/export-এ shared। Actual H.264/HEVC MP4 এবং supported device-এ
+- Exposure/WB/saturation/contrast এবং per-channel lift/gain/offset linear-light grade preview/export-এ
+  shared; versioned color persistence। Actual H.264/HEVC MP4 এবং supported device-এ
   hardware APV export।
 - Verified native ProRes (422 ও 4444 family), DNxHR, FFV1/alpha এবং software OpenAPV
   400/422/444/4444 10/12-bit export; output re-probe/full decode, cancellation ও cleanup।

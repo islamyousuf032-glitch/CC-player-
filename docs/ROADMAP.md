@@ -100,7 +100,7 @@ before or during export with an actionable error—never a silent H.264/resoluti
 - [ ] FP16 scene-linear GPU working frames and explicit input/output color metadata.
 - [ ] Camera input transforms and white balance; no double gamma or accidental display-LUT input.
 - [ ] Exposure, temperature/tint with documented chromatic adaptation, contrast/pivot and mid-detail.
-- [ ] Lift/gamma/gain/offset, ASC CDL, RGB curves and HSL qualifiers.
+- [ ] Lift/gamma/gain/offset, ASC CDL, RGB curves and HSL qualifiers. Per-channel lift/gain/offset and persistence are implemented; nonlinear stages remain.
 - [ ] `.cube` LUT import with size/domain validation; evaluate OCIO/CLF/ACES integration.
 - [ ] HDR10/HLG/PQ and SDR tone/gamut mapping with test frames.
 - [ ] Histogram, waveform, RGB parade and vectorscope computed from declared signal stages.
