@@ -88,7 +88,9 @@ std::vector<jint> renderDraft(motioncam::Decoder& decoder, int frameIndex, int m
 
     std::array<float, 4> black = {0, 0, 0, 0};
     const auto blackIt = container.find("blackLevel");
-    if (blackIt != container.end() && blackIt->is_array()) {
+    if (blackIt != container.end() && blackIt->is_number()) {
+        black.fill(blackIt->get<float>());
+    } else if (blackIt != container.end() && blackIt->is_array()) {
         for (size_t i = 0; i < std::min<size_t>(4, blackIt->size()); ++i) {
             if (blackIt->at(i).is_number()) black[i] = blackIt->at(i).get<float>();
         }
@@ -96,8 +98,9 @@ std::vector<jint> renderDraft(motioncam::Decoder& decoder, int frameIndex, int m
     const float white = positiveJsonFloat(container, "whiteLevel", 65535.0f);
 
     Rgb neutral = {1, 1, 1};
-    const auto neutralIt = frameMetadata.find("asShotNeutral");
-    if (neutralIt != frameMetadata.end() && neutralIt->is_array() && neutralIt->size() >= 3) {
+    const json* neutralObject = frameMetadata.contains("asShotNeutral") ? &frameMetadata : &container;
+    const auto neutralIt = neutralObject->find("asShotNeutral");
+    if (neutralIt != neutralObject->end() && neutralIt->is_array() && neutralIt->size() >= 3) {
         for (size_t i = 0; i < 3; ++i) {
             if (neutralIt->at(i).is_number()) neutral[i] = neutralIt->at(i).get<float>();
         }
@@ -282,7 +285,12 @@ Java_com_ccplayer_media_mcraw_McrawSession_nativeOpen(JNIEnv* env, jobject, jint
     try {
         auto session = std::make_unique<NativeSession>();
         session->decoder = decoderFromFd(fd);
-        session->audioLoader = &session->decoder->loadAudio();
+        try {
+            session->audioLoader = &session->decoder->loadAudio();
+        } catch (const std::exception&) {
+            // Audio is optional; a missing/unsupported audio stream must not reject video playback.
+            session->audioLoader = nullptr;
+        }
         return reinterpret_cast<jlong>(session.release());
     } catch (const std::exception& error) {
         throwJava(env, error.what());
@@ -339,8 +347,10 @@ extern "C" JNIEXPORT jshortArray JNICALL
 Java_com_ccplayer_media_mcraw_McrawSession_nativeNextAudioChunk(JNIEnv* env, jobject, jlong pointer, jlongArray timestampUs) {
     try {
         if (env->GetArrayLength(timestampUs) != 1) throw std::runtime_error("Audio timestamp output must contain one value");
+        auto* session = sessionFrom(pointer);
+        if (!session->audioLoader) return nullptr;
         motioncam::AudioChunk chunk;
-        if (!sessionFrom(pointer)->audioLoader->next(chunk)) return nullptr;
+        if (!session->audioLoader->next(chunk)) return nullptr;
         if (chunk.second.size() > static_cast<size_t>(INT32_MAX)) throw std::runtime_error("MCRAW audio chunk is too large");
         const jlong timestamp = chunk.first < 0 ? -1 : chunk.first / 1000;
         env->SetLongArrayRegion(timestampUs, 0, 1, &timestamp);
