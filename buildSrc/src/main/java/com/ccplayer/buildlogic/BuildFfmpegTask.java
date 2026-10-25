@@ -3,9 +3,11 @@ package com.ccplayer.buildlogic;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.DirectoryProperty;
+import org.gradle.api.file.RegularFileProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFiles;
+import org.gradle.api.tasks.InputFile;
 import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.OutputDirectory;
 import org.gradle.api.tasks.PathSensitive;
@@ -19,6 +21,10 @@ import javax.inject.Inject;
 public abstract class BuildFfmpegTask extends DefaultTask {
     @Inject
     protected abstract ExecOperations getExecOperations();
+
+    @InputFile
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract RegularFileProperty getBuildScript();
 
     @Input
     public abstract Property<String> getNdkPath();
@@ -54,10 +60,11 @@ public abstract class BuildFfmpegTask extends DefaultTask {
     @TaskAction
     public void build() {
         getExecOperations().exec(spec -> {
-            spec.workingDir(getProject().getRootDir());
+            final var script = getBuildScript().get().getAsFile();
+            spec.workingDir(script.getParentFile().getParentFile());
             spec.commandLine(
                     "bash",
-                    getProject().getRootProject().file("scripts/build-ffmpeg-android.sh").getAbsolutePath(),
+                    script.getAbsolutePath(),
                     "--ndk", getNdkPath().get(),
                     "--cmake", getCmakePath().get(),
                     "--output", getNativeRoot().get().getAsFile().getAbsolutePath(),

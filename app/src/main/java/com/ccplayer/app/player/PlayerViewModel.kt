@@ -25,6 +25,7 @@ import com.ccplayer.media.android.playback.PlaybackSnapshot
 import com.ccplayer.media.mcraw.McrawDecoder
 import com.ccplayer.media.mcraw.McrawInfo
 import com.ccplayer.media.mcraw.McrawPlaybackController
+import com.ccplayer.media.mcraw.McrawRenderQuality
 import com.ccplayer.media.ffmpeg.FFmpegExportEngine
 import com.ccplayer.media.ffmpeg.FFmpegRuntimeInfo
 import com.ccplayer.media.ffmpeg.FFmpegImageDecoder
@@ -81,6 +82,7 @@ data class PlayerUiState(
     val unsupportedDetail: String? = null,
     val mcrawInfo: McrawInfo? = null,
     val mcrawPreview: Bitmap? = null,
+    val mcrawQuality: McrawRenderQuality = McrawRenderQuality.DRAFT,
     val mcrawFrameIndex: Int = 0,
     val mcrawPlaying: Boolean = false,
     val mcrawPositionUs: Long = 0,
@@ -144,6 +146,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 mutableUiState.update {
                     it.copy(
                         mcrawPreview = raw.preview,
+                        mcrawQuality = raw.quality,
                         mcrawFrameIndex = raw.frameIndex,
                         mcrawPlaying = raw.isPlaying,
                         mcrawPositionUs = raw.positionUs,
@@ -357,6 +360,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun playMcrawPause() = mcrawPlayback.playPause()
+    fun cycleMcrawQuality() = mcrawPlayback.cycleQuality()
     fun playPause() = playbackEngine.playPause()
     fun pause() {
         saveCurrentPosition()

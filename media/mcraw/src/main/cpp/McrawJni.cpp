@@ -60,7 +60,7 @@ float positiveJsonFloat(const json& object, const char* key, float fallback) {
 }
 
 std::vector<jint> renderDraft(motioncam::Decoder& decoder, int frameIndex, int maxDimension,
-                              int& outputWidth, int& outputHeight) {
+                              int& outputWidth, int& outputHeight, int quality = 0) {
     const auto& frames = decoder.getFrames();
     if (frameIndex < 0 || static_cast<size_t>(frameIndex) >= frames.size()) {
         throw std::runtime_error("Frame index is outside the MCRAW recording");
@@ -68,6 +68,7 @@ std::vector<jint> renderDraft(motioncam::Decoder& decoder, int frameIndex, int m
     if (maxDimension < 64 || maxDimension > 4096) {
         throw std::runtime_error("Preview dimension must be between 64 and 4096");
     }
+    if (quality < 0 || quality > 1) throw std::runtime_error("Unknown MCRAW demosaic quality");
 
     std::vector<uint8_t> data;
     json frameMetadata;
@@ -140,30 +141,59 @@ std::vector<jint> renderDraft(motioncam::Decoder& decoder, int frameIndex, int m
         return rgb;
     };
 
+    auto cfaColor = [&](int x, int y) {
+        const int index = (y & 1) * 2 + (x & 1);
+        if (arrangement == "rggb") return std::array<int, 4>{0, 1, 1, 2}[index];
+        if (arrangement == "bggr") return std::array<int, 4>{2, 1, 1, 0}[index];
+        if (arrangement == "grbg") return std::array<int, 4>{1, 0, 2, 1}[index];
+        return std::array<int, 4>{1, 2, 0, 1}[index];
+    };
+    auto readBilinear = [&](int x, int y) {
+        Rgb rgb{};
+        for (int channel = 0; channel < 3; ++channel) {
+            float sum = 0.0f;
+            int count = 0;
+            for (int dy = -1; dy <= 1; ++dy) {
+                for (int dx = -1; dx <= 1; ++dx) {
+                    const int sampleX = x + dx;
+                    const int sampleY = y + dy;
+                    if (sampleX < 0 || sampleY < 0 || sampleX >= width || sampleY >= height ||
+                        cfaColor(sampleX, sampleY) != channel) continue;
+                    sum += readNormalized(sampleX, sampleY);
+                    ++count;
+                }
+            }
+            rgb[channel] = count > 0 ? std::clamp(sum / count * whiteBalance[channel], 0.0f, 1.0f) : 0.0f;
+        }
+        return rgb;
+    };
+
     const int cellsWide = width / 2;
     const int cellsHigh = height / 2;
-    const float scale = std::min(1.0f, static_cast<float>(maxDimension) / static_cast<float>(std::max(cellsWide, cellsHigh)));
-    outputWidth = std::max(1, static_cast<int>(std::floor(cellsWide * scale)));
-    outputHeight = std::max(1, static_cast<int>(std::floor(cellsHigh * scale)));
+    const int sourceWidth = quality == 1 ? width : cellsWide;
+    const int sourceHeight = quality == 1 ? height : cellsHigh;
+    const float scale = std::min(1.0f, static_cast<float>(maxDimension) / static_cast<float>(std::max(sourceWidth, sourceHeight)));
+    outputWidth = std::max(1, static_cast<int>(std::floor(sourceWidth * scale)));
+    outputHeight = std::max(1, static_cast<int>(std::floor(sourceHeight * scale)));
 
     std::vector<jint> pixels;
     pixels.reserve(static_cast<size_t>(outputWidth) * static_cast<size_t>(outputHeight));
     for (int outY = 0; outY < outputHeight; ++outY) {
-        const float sourceY = std::clamp((outY + 0.5f) * cellsHigh / outputHeight - 0.5f,
-                                         0.0f, static_cast<float>(cellsHigh - 1));
+        const float sourceY = std::clamp((outY + 0.5f) * sourceHeight / outputHeight - 0.5f,
+                                         0.0f, static_cast<float>(sourceHeight - 1));
         const int y0 = static_cast<int>(std::floor(sourceY));
-        const int y1 = std::min(cellsHigh - 1, y0 + 1);
+        const int y1 = std::min(sourceHeight - 1, y0 + 1);
         const float fy = sourceY - y0;
         for (int outX = 0; outX < outputWidth; ++outX) {
-            const float sourceX = std::clamp((outX + 0.5f) * cellsWide / outputWidth - 0.5f,
-                                             0.0f, static_cast<float>(cellsWide - 1));
+            const float sourceX = std::clamp((outX + 0.5f) * sourceWidth / outputWidth - 0.5f,
+                                             0.0f, static_cast<float>(sourceWidth - 1));
             const int x0 = static_cast<int>(std::floor(sourceX));
-            const int x1 = std::min(cellsWide - 1, x0 + 1);
+            const int x1 = std::min(sourceWidth - 1, x0 + 1);
             const float fx = sourceX - x0;
-            const Rgb c00 = readCell(x0, y0);
-            const Rgb c10 = readCell(x1, y0);
-            const Rgb c01 = readCell(x0, y1);
-            const Rgb c11 = readCell(x1, y1);
+            const Rgb c00 = quality == 1 ? readBilinear(x0, y0) : readCell(x0, y0);
+            const Rgb c10 = quality == 1 ? readBilinear(x1, y0) : readCell(x1, y0);
+            const Rgb c01 = quality == 1 ? readBilinear(x0, y1) : readCell(x0, y1);
+            const Rgb c11 = quality == 1 ? readBilinear(x1, y1) : readCell(x1, y1);
 
             std::array<int, 3> display{};
             for (size_t channel = 0; channel < 3; ++channel) {
@@ -285,11 +315,11 @@ Java_com_ccplayer_media_mcraw_McrawSession_nativeFrameTimestampUs(JNIEnv* env, j
 }
 
 extern "C" JNIEXPORT jintArray JNICALL
-Java_com_ccplayer_media_mcraw_McrawSession_nativeRender(JNIEnv* env, jobject, jlong pointer, jint frameIndex, jint maxDimension) {
+Java_com_ccplayer_media_mcraw_McrawSession_nativeRender(JNIEnv* env, jobject, jlong pointer, jint frameIndex, jint maxDimension, jint quality) {
     try {
         int width = 0;
         int height = 0;
-        auto pixels = renderDraft(*sessionFrom(pointer)->decoder, frameIndex, maxDimension, width, height);
+        auto pixels = renderDraft(*sessionFrom(pointer)->decoder, frameIndex, maxDimension, width, height, quality);
         if (pixels.size() + 2 > static_cast<size_t>(INT32_MAX)) throw std::runtime_error("MCRAW preview is too large");
         auto result = env->NewIntArray(static_cast<jsize>(pixels.size() + 2));
         if (!result) return nullptr;

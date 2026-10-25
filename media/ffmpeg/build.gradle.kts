@@ -13,6 +13,7 @@ val localSdk = sequenceOf(System.getenv("ANDROID_HOME"), System.getenv("ANDROID_
     ?: error("ANDROID_HOME or sdk.dir is required for the native FFmpeg build")
 val nativeBuildRoot = layout.buildDirectory.dir("ffmpeg")
 val buildFfmpeg = tasks.register<BuildFfmpegTask>("buildFfmpegNative") {
+    buildScript.set(rootProject.file("scripts/build-ffmpeg-android.sh"))
     ndkPath.set(file("$localSdk/ndk/28.2.13676358").absolutePath)
     cmakePath.set(file("$localSdk/cmake/3.31.6/bin/cmake").absolutePath)
     abis.set("arm64-v8a,x86_64")

@@ -10,6 +10,11 @@ import java.io.IOException
 
 data class McrawAudioChunk(val timestampUs: Long, val samples: ShortArray)
 
+enum class McrawRenderQuality(val nativeValue: Int) {
+    DRAFT(0),
+    BILINEAR_CPU(1),
+}
+
 /** A persistent decoder: frame scrubbing and sequential audio no longer reopen/reindex the recording. */
 class McrawSession(context: Context, uri: Uri) : Closeable {
     private val descriptor: ParcelFileDescriptor = context.applicationContext.contentResolver.openFileDescriptor(uri, "r")
@@ -28,8 +33,12 @@ class McrawSession(context: Context, uri: Uri) : Closeable {
     fun frameTimestampUs(frameIndex: Int): Long = nativeFrameTimestampUs(handle(), frameIndex)
 
     @Synchronized
-    fun renderDraft(frameIndex: Int, maxDimension: Int = 640): Bitmap {
-        val values = nativeRender(handle(), frameIndex, maxDimension)
+    fun renderDraft(
+        frameIndex: Int,
+        maxDimension: Int = 640,
+        quality: McrawRenderQuality = McrawRenderQuality.DRAFT,
+    ): Bitmap {
+        val values = nativeRender(handle(), frameIndex, maxDimension, quality.nativeValue)
         require(values.size >= 3) { "Native decoder returned no preview" }
         val width = values[0]
         val height = values[1]
@@ -60,7 +69,7 @@ class McrawSession(context: Context, uri: Uri) : Closeable {
     @Keep private external fun nativeOpen(fd: Int): Long
     @Keep private external fun nativeFrameCount(pointer: Long): Int
     @Keep private external fun nativeFrameTimestampUs(pointer: Long, frameIndex: Int): Long
-    @Keep private external fun nativeRender(pointer: Long, frameIndex: Int, maxDimension: Int): IntArray
+    @Keep private external fun nativeRender(pointer: Long, frameIndex: Int, maxDimension: Int, quality: Int): IntArray
     @Keep private external fun nativeNextAudioChunk(pointer: Long, timestampUs: LongArray): ShortArray?
     @Keep private external fun nativeClose(pointer: Long)
 

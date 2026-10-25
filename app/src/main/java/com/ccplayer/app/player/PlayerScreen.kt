@@ -74,6 +74,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
 import com.ccplayer.core.media.export.ExportProfiles
+import com.ccplayer.media.mcraw.McrawRenderQuality
 import com.ccplayer.media.android.playback.PlaybackStatus
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -551,7 +552,10 @@ private fun McrawWorkspace(state: PlayerUiState, viewModel: PlayerViewModel, onO
                             contentDescription = if (state.mcrawPlaying) "Pause MCRAW" else "Play MCRAW",
                         )
                     }
-                    Spacer(Modifier.width(12.dp))
+                    Spacer(Modifier.width(4.dp))
+                    TextButton(onClick = viewModel::cycleMcrawQuality) {
+                        Text(if (state.mcrawQuality == McrawRenderQuality.DRAFT) "Draft" else "Bilinear")
+                    }
                     Text(
                         "${formatTime(state.mcrawPositionUs / 1000)} / ${formatTime(state.mcrawDurationUs / 1000)}  •  dropped ${state.mcrawDroppedFrames}",
                         style = MaterialTheme.typography.labelMedium,
@@ -573,7 +577,7 @@ private fun McrawWorkspace(state: PlayerUiState, viewModel: PlayerViewModel, onO
                 }
             }
             Text(
-                "Persistent native decoding, exact frame timestamps, PCM audio and one-frame read-ahead. Draft CPU demosaic/white balance is not the final camera color or GPU quality stage.",
+                "Persistent native decoding, exact timestamps and PCM audio. Draft uses 2×2 cells; Bilinear uses full-CFA CPU neighbors. Neither is final camera color/GPU demosaic; slow quality may drop frames.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.secondary,
             )

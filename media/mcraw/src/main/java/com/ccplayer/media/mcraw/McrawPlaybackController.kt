@@ -36,6 +36,7 @@ data class McrawPlaybackState(
     val positionUs: Long = 0,
     val durationUs: Long = 0,
     val preview: Bitmap? = null,
+    val quality: McrawRenderQuality = McrawRenderQuality.DRAFT,
     val droppedFrames: Int = 0,
     val error: String? = null,
 )
@@ -110,6 +111,16 @@ class McrawPlaybackController(context: Context) : Closeable {
         if (playing) pause() else play()
     }
 
+    fun cycleQuality() {
+        val quality = if (mutableState.value.quality == McrawRenderQuality.DRAFT) {
+            McrawRenderQuality.BILINEAR_CPU
+        } else {
+            McrawRenderQuality.DRAFT
+        }
+        mutableState.value = mutableState.value.copy(quality = quality)
+        if (!playing && mutableState.value.isOpen) seekFrame(mutableState.value.frameIndex, resume = false)
+    }
+
     fun play() {
         if (!mutableState.value.isOpen || playing) return
         if (mutableState.value.ended) seekFrame(0, resume = false)
@@ -165,7 +176,8 @@ class McrawPlaybackController(context: Context) : Closeable {
     private suspend fun renderStill(index: Int, expected: Long) {
         val session = videoSession ?: return
         runCatching {
-            withContext(videoDispatcher) { session.renderDraft(index, PREVIEW_DIMENSION) }
+            val quality = mutableState.value.quality
+            withContext(videoDispatcher) { session.renderDraft(index, PREVIEW_DIMENSION, quality) }
         }.onSuccess { bitmap ->
             if (generation == expected) {
                 mutableState.value = mutableState.value.copy(preview = bitmap, frameIndex = index, error = null)
@@ -205,7 +217,8 @@ class McrawPlaybackController(context: Context) : Closeable {
                 }
                 if (prefetch == null) {
                     val index = nextIndex
-                    prefetch = scope.async(videoDispatcher) { session.renderDraft(index, PREVIEW_DIMENSION) }
+                    val quality = mutableState.value.quality
+                    prefetch = scope.async(videoDispatcher) { session.renderDraft(index, PREVIEW_DIMENSION, quality) }
                 }
                 val bitmap = prefetch!!.await()
                 prefetch = null
@@ -219,7 +232,8 @@ class McrawPlaybackController(context: Context) : Closeable {
                 nextIndex++
                 if (nextIndex < timestampsUs.size) {
                     val index = nextIndex
-                    prefetch = scope.async(videoDispatcher) { session.renderDraft(index, PREVIEW_DIMENSION) }
+                    val quality = mutableState.value.quality
+                    prefetch = scope.async(videoDispatcher) { session.renderDraft(index, PREVIEW_DIMENSION, quality) }
                 }
             }
         } catch (error: Throwable) {
