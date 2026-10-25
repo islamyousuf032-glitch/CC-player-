@@ -1,5 +1,7 @@
 #include "playback_android.h"
 
+#include <android/native_window_jni.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
