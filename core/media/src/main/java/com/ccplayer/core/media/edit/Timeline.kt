@@ -174,9 +174,11 @@ data class Timeline(val tracks: List<VideoTrack> = emptyList()) {
 }
 
 /** Immutable undo/redo history. A new edit always clears the redo branch. */
-class EditHistory(initial: Timeline) {
+class EditHistory(initial: Timeline, private val maxOperations: Int = 100) {
     private val undo = ArrayDeque<Timeline>()
     private val redo = ArrayDeque<Timeline>()
+
+    init { require(maxOperations > 0) { "History capacity must be positive" } }
 
     var current: Timeline = initial
         private set
@@ -188,15 +190,25 @@ class EditHistory(initial: Timeline) {
         val next = edit(current)
         if (next != current) {
             undo.addLast(current)
+            while (undo.size > maxOperations) undo.removeFirst()
             current = next
             redo.clear()
         }
         return current
     }
 
+    /** Applies a gesture as one atomic history entry; a failed operation leaves the old timeline intact. */
+    fun executeGrouped(edits: List<(Timeline) -> Timeline>): Timeline {
+        require(edits.isNotEmpty()) { "A grouped edit cannot be empty" }
+        var next = current
+        edits.forEach { edit -> next = edit(next) }
+        return execute { next }
+    }
+
     fun undo(): Timeline {
         check(canUndo) { "Nothing to undo" }
         redo.addLast(current)
+        while (redo.size > maxOperations) redo.removeFirst()
         current = undo.removeLast()
         return current
     }
@@ -204,6 +216,7 @@ class EditHistory(initial: Timeline) {
     fun redo(): Timeline {
         check(canRedo) { "Nothing to redo" }
         undo.addLast(current)
+        while (undo.size > maxOperations) undo.removeFirst()
         current = redo.removeLast()
         return current
     }

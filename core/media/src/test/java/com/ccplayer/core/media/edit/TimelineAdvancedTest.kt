@@ -46,6 +46,42 @@ class TimelineAdvancedTest {
         assertEquals(5_000_000L, timeline.snapPosition(4_900_000, listOf(1_000_000, 5_000_000), 200_000))
     }
 
+    @Test
+    fun groupedEditIsAtomicAndUsesOneUndoEntry() {
+        val history = EditHistory(timeline)
+        history.executeGrouped(listOf(
+            { current -> current.splitClip("v1", "a", 2_000_000, "right") },
+            { current -> current.rippleDelete("v1", "b") },
+        ))
+        assertEquals(2, history.current.tracks.first().clips.size)
+        history.undo()
+        assertEquals(timeline, history.current)
+        history.redo()
+        assertEquals(2, history.current.tracks.first().clips.size)
+
+        val beforeFailure = history.current
+        try {
+            history.executeGrouped(listOf(
+                { current -> current.removeClip("v1", "a") },
+                { current -> current.trimClip("v1", "missing", 0, 1) },
+            ))
+            throw AssertionError("Expected grouped edit failure")
+        } catch (_: IllegalStateException) {
+            // Expected: no partial removal is committed.
+        }
+        assertEquals(beforeFailure, history.current)
+    }
+
+    @Test
+    fun historyCapacityDropsOnlyTheOldestEntry() {
+        val history = EditHistory(timeline, maxOperations = 1)
+        history.execute { it.removeClip("v1", "a") }
+        history.execute { it.removeClip("v1", "b") }
+        history.undo()
+        assertEquals(1, history.current.tracks.first().clips.size)
+        assertEquals("b", history.current.tracks.first().clips.single().id)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun slipOutsideSourceIsRejected() {
         timeline.slipClip("v1", "a", 8_000_000, sourceDurationUs = 10_000_000)
