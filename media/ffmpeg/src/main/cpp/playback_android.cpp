@@ -68,9 +68,13 @@ JNIEnv* AndroidPlaybackSink::environment() {
     const int status = vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
     if (status == JNI_EDETACHED) {
         if (vm->AttachCurrentThread(&env, nullptr) != JNI_OK) throw Error(AVERROR_EXTERNAL, "Could not attach native playback thread to the JVM");
-        threadState = {vm, env, true};
+        threadState.vm = vm;
+        threadState.env = env;
+        threadState.owned = true;
     } else if (status == JNI_OK) {
-        threadState = {vm, env, false};
+        threadState.vm = vm;
+        threadState.env = env;
+        threadState.owned = false;
     } else {
         throw Error(AVERROR_EXTERNAL, "Could not acquire a JNI environment for native playback");
     }
