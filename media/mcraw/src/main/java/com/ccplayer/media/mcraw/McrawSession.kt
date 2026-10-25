@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.ParcelFileDescriptor
-import androidx.annotation.Keep
 import java.io.Closeable
 import java.io.IOException
 
@@ -66,12 +65,12 @@ class McrawSession(context: Context, uri: Uri) : Closeable {
         descriptor.close()
     }
 
-    @Keep private external fun nativeOpen(fd: Int): Long
-    @Keep private external fun nativeFrameCount(pointer: Long): Int
-    @Keep private external fun nativeFrameTimestampUs(pointer: Long, frameIndex: Int): Long
-    @Keep private external fun nativeRender(pointer: Long, frameIndex: Int, maxDimension: Int, quality: Int): IntArray
-    @Keep private external fun nativeNextAudioChunk(pointer: Long, timestampUs: LongArray): ShortArray?
-    @Keep private external fun nativeClose(pointer: Long)
+    private external fun nativeOpen(fd: Int): Long
+    private external fun nativeFrameCount(pointer: Long): Int
+    private external fun nativeFrameTimestampUs(pointer: Long, frameIndex: Int): Long
+    private external fun nativeRender(pointer: Long, frameIndex: Int, maxDimension: Int, quality: Int): IntArray
+    private external fun nativeNextAudioChunk(pointer: Long, timestampUs: LongArray): ShortArray?
+    private external fun nativeClose(pointer: Long)
 
     private companion object {
         init { System.loadLibrary("ccplayer_mcraw") }
