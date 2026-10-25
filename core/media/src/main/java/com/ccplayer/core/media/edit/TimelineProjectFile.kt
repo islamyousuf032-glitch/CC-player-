@@ -23,7 +23,7 @@ object TimelineProjectFile {
         val temporary = File(parent, ".${file.name}.${UUID.randomUUID()}.tmp")
         try {
             val bytes = TimelineProjectJson.encode(project).toByteArray(Charsets.UTF_8)
-            if (bytes.size > MAX_PROJECT_BYTES) throw IOException("Project exceeds the 64 MiB persistence limit")
+            if (bytes.size.toLong() > MAX_PROJECT_BYTES) throw IOException("Project exceeds the 64 MiB persistence limit")
             FileOutputStream(temporary).use { output ->
                 output.write(bytes)
                 output.fd.sync()
