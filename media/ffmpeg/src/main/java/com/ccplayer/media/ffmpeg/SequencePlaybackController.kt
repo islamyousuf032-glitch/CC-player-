@@ -1,6 +1,7 @@
 package com.ccplayer.media.ffmpeg
 
 import android.graphics.Bitmap
+import com.ccplayer.core.media.time.FrameRate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -38,7 +39,8 @@ class SequencePlaybackController(private val decoder: FFmpegImageDecoder) : Clos
     private val mutableState = MutableStateFlow(SequencePlaybackState())
     val state: StateFlow<SequencePlaybackState> = mutableState.asStateFlow()
     private var info: ImageSequenceInfo? = null
-    private var job: Job? = null
+    private var playbackJob: Job? = null
+    private var renderJob: Job? = null
     private var generation = 0L
     @Volatile private var playing = false
     @Volatile private var basePositionUs = 0L
@@ -47,9 +49,12 @@ class SequencePlaybackController(private val decoder: FFmpegImageDecoder) : Clos
     fun open(sequence: ImageSequenceInfo, frameRateNum: Int = 24, frameRateDen: Int = 1, startPositionUs: Long = 0) {
         stop()
         info = sequence
-        val duration = durationUs(sequence.frames.size, frameRateNum, frameRateDen)
-        val index = frameIndexForPosition(startPositionUs, sequence.frames.size, frameRateNum, frameRateDen)
-        val position = positionForFrame(index, frameRateNum, frameRateDen)
+        val rate = FrameRate(frameRateNum, frameRateDen)
+        val duration = rate.frameToTimeUs(sequence.frames.size.toLong())
+        val start = startPositionUs.coerceIn(0, duration)
+        val index = rate.timeToFrameFloor(start).toInt()
+            .coerceIn(0, (sequence.frames.size - 1).coerceAtLeast(0))
+        val position = rate.frameToTimeUs(index.toLong())
         basePositionUs = position
         mutableState.value = SequencePlaybackState(
             isOpen = true,
@@ -69,13 +74,16 @@ class SequencePlaybackController(private val decoder: FFmpegImageDecoder) : Clos
 
     fun play() {
         if (!mutableState.value.isOpen || playing) return
-        if (mutableState.value.ended) seekFrame(0, resume = false)
+        if (mutableState.value.ended) {
+            seekFrame(0, resume = true)
+            return
+        }
         basePositionUs = mutableState.value.positionUs
         anchorNanoTime = System.nanoTime()
         playing = true
         mutableState.value = mutableState.value.copy(isPlaying = true, ended = false, error = null)
         val expected = generation
-        job = scope.launch { playbackLoop(expected) }
+        playbackJob = scope.launch { playbackLoop(expected) }
     }
 
     fun pause() {
@@ -91,27 +99,27 @@ class SequencePlaybackController(private val decoder: FFmpegImageDecoder) : Clos
         if (state.frameCount <= 0) return
         stop()
         val target = index.coerceIn(0, state.frameCount - 1)
-        val position = positionForFrame(target, state.frameRateNum, state.frameRateDen)
+        val position = FrameRate(state.frameRateNum, state.frameRateDen).frameToTimeUs(target.toLong())
         basePositionUs = position
-        mutableState.value = state.copy(frameIndex = target, positionUs = position, ended = false, error = null)
+        mutableState.value = state.copy(isPlaying = false, frameIndex = target, positionUs = position, ended = false, error = null)
         val expected = generation
-        job = scope.launch {
-            renderStill(target, expected)
-            if (resume && generation == expected) play()
-        }
+        renderStill(target, expected, resume)
     }
 
     fun setFrameRate(numerator: Int, denominator: Int) {
         require(numerator > 0 && denominator > 0)
         val state = mutableState.value
         if (!state.isOpen) return
+        val wasPlaying = playing
         val position = if (playing) clockPositionUs() else state.positionUs
         stop()
-        val duration = durationUs(state.frameCount, numerator, denominator)
+        val rate = FrameRate(numerator, denominator)
+        val duration = rate.frameToTimeUs(state.frameCount.toLong())
         val clamped = position.coerceIn(0, duration)
-        val index = frameIndexForPosition(clamped, state.frameCount, numerator, denominator)
+        val index = rate.timeToFrameFloor(clamped).toInt().coerceIn(0, (state.frameCount - 1).coerceAtLeast(0))
         basePositionUs = clamped
         mutableState.value = state.copy(
+            isPlaying = false,
             frameIndex = index,
             positionUs = clamped,
             durationUs = duration,
@@ -119,18 +127,16 @@ class SequencePlaybackController(private val decoder: FFmpegImageDecoder) : Clos
             frameRateDen = denominator,
             ended = false,
         )
-        renderStill(index, generation)
+        renderStill(index, generation, wasPlaying)
     }
 
     private suspend fun playbackLoop(expected: Long) {
         var prefetch: Deferred<Bitmap>? = null
         try {
-            var nextIndex = frameIndexForPosition(
-                clockPositionUs(),
-                mutableState.value.frameCount,
-                mutableState.value.frameRateNum,
-                mutableState.value.frameRateDen,
-            )
+            val initialState = mutableState.value
+            val rate = FrameRate(initialState.frameRateNum, initialState.frameRateDen)
+            var nextIndex = rate.timeToFrameFloor(clockPositionUs()).toInt()
+                .coerceIn(0, (initialState.frameCount - 1).coerceAtLeast(0))
             while (coroutineContext.isActive && generation == expected && playing) {
                 val state = mutableState.value
                 val clock = clockPositionUs()
@@ -149,8 +155,8 @@ class SequencePlaybackController(private val decoder: FFmpegImageDecoder) : Clos
                     )
                     break
                 }
-                val target = positionForFrame(nextIndex, state.frameRateNum, state.frameRateDen)
-                val frameDuration = 1_000_000.0 * state.frameRateDen / state.frameRateNum
+                val target = rate.frameToTimeUs(nextIndex.toLong())
+                val frameDuration = rate.frameToTimeUs(1).coerceAtLeast(1)
                 if (target + frameDuration < clock - frameDuration && nextIndex < state.frameCount - 1) {
                     nextIndex++
                     mutableState.value = mutableState.value.copy(droppedFrames = mutableState.value.droppedFrames + 1)
@@ -189,12 +195,15 @@ class SequencePlaybackController(private val decoder: FFmpegImageDecoder) : Clos
         }
     }
 
-    private fun renderStill(index: Int, expected: Long) {
+    private fun renderStill(index: Int, expected: Long, resume: Boolean = false) {
         val sequence = info ?: return
-        job = scope.launch {
+        renderJob = scope.launch {
             runCatching { decoder.decode(sequence.frames[index].uri, PREVIEW_DIMENSION) }
                 .onSuccess { bitmap ->
-                    if (generation == expected) mutableState.value = mutableState.value.copy(preview = bitmap, frameIndex = index, error = null)
+                    if (generation == expected) {
+                        mutableState.value = mutableState.value.copy(preview = bitmap, frameIndex = index, error = null)
+                        if (resume) play()
+                    }
                 }
                 .onFailure { error ->
                     if (generation == expected) mutableState.value = mutableState.value.copy(error = error.message)
@@ -211,8 +220,10 @@ class SequencePlaybackController(private val decoder: FFmpegImageDecoder) : Clos
     private fun stop() {
         generation++
         playing = false
-        job?.cancel()
-        job = null
+        playbackJob?.cancel()
+        playbackJob = null
+        renderJob?.cancel()
+        renderJob = null
     }
 
     override fun close() {
@@ -222,12 +233,3 @@ class SequencePlaybackController(private val decoder: FFmpegImageDecoder) : Clos
 
     private companion object { const val PREVIEW_DIMENSION = 960 }
 }
-
-private fun durationUs(frames: Int, numerator: Int, denominator: Int): Long =
-    (frames.toDouble() * 1_000_000.0 * denominator / numerator).toLong()
-
-private fun positionForFrame(index: Int, numerator: Int, denominator: Int): Long =
-    (index.toDouble() * 1_000_000.0 * denominator / numerator).toLong()
-
-private fun frameIndexForPosition(positionUs: Long, frameCount: Int, numerator: Int, denominator: Int): Int =
-    (positionUs.toDouble() * numerator / (1_000_000.0 * denominator)).toInt().coerceIn(0, (frameCount - 1).coerceAtLeast(0))

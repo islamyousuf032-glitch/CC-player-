@@ -147,6 +147,7 @@ class McrawPlaybackController(context: Context) : Closeable {
         val position = (timestampsUs[target] - firstTimestampUs).coerceAtLeast(0)
         basePositionUs = position
         mutableState.value = mutableState.value.copy(
+            isPlaying = false,
             frameIndex = target,
             positionUs = position,
             ended = false,
