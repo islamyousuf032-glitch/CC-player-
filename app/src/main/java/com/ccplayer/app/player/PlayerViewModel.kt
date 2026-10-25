@@ -567,7 +567,12 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun updateExportProgress(percent: Int) {
+    private fun updateExportProgress(percent: Int?) {
+        if (percent == null) {
+            ExportForegroundService.progress(null)
+            mutableUiState.update { it.copy(export = it.export.copy(progress = null, etaSeconds = null)) }
+            return
+        }
         val bounded = percent.coerceIn(0, 100)
         val elapsedSeconds = (System.nanoTime() - exportStartedAtNanos) / 1_000_000_000L
         val eta = if (bounded in 1..99) (elapsedSeconds * (100 - bounded) / bounded).coerceAtLeast(0) else null

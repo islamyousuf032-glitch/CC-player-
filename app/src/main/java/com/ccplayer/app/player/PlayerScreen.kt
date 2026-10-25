@@ -343,7 +343,7 @@ private fun VideoWorkspace(state: PlayerUiState, viewModel: PlayerViewModel, onO
             when (state.playbackBackend) {
                 PlaybackBackend.FFMPEG -> "FFMPEG • NATIVE CLOCK + LINEAR COLOR"
                 PlaybackBackend.MEDIA3 -> "MEDIA3 • HARDWARE FIRST"
-                PlaybackBackend.NONE -> "OPENING MEDIA",
+                PlaybackBackend.NONE -> "OPENING MEDIA"
             },
         )
         Box(
